@@ -66,13 +66,16 @@ COPY cape.sql /usr/local/share/openrail/cape.sql
 
 # --- container glue ---
 COPY docker/bin/ /usr/local/bin/
-COPY docker/apache-openrail.conf /etc/apache2/conf-enabled/openrail.conf
+COPY docker/apache-openrail.conf /etc/apache2/sites-available/000-default.conf
 COPY docker/openrail.cron        /etc/cron.d/openrail
 
 RUN chmod 0755 /usr/local/bin/openrail-* \
     && chmod 0644 /etc/cron.d/openrail \
     && mkdir -p /var/log/garner/web /var/spool/stompy \
-    && printf 'ServerName openrail\n' > /etc/apache2/conf-enabled/servername.conf
+    && printf 'ServerName openrail\n' > /etc/apache2/conf-available/servername.conf \
+    && a2enconf servername \
+    && (a2disconf serve-cgi-bin || true) \
+    && a2ensite 000-default
 
 # tini reaps the daemons that re-parent onto PID 1 after they fork.
 ENTRYPOINT ["/usr/bin/tini", "--"]
