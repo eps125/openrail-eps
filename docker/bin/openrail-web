@@ -8,9 +8,10 @@ openrail-render-config
 mkdir -p /var/log/garner/web
 chown -R www-data:www-data /var/log/garner/web
 
-# shellcheck disable=SC1091
-source /etc/apache2/envvars
-rm -f "${APACHE_PID_FILE:-/var/run/apache2/apache2.pid}"
-mkdir -p "${APACHE_RUN_DIR:-/var/run/apache2}"
+# Do NOT `source /etc/apache2/envvars` here: under `set -u` its unguarded
+# ${APACHE_CONFDIR} reference aborts the script.  apache2ctl sources it itself
+# in a plain shell before exec'ing apache2.
+mkdir -p /var/run/apache2
+rm -f /var/run/apache2/apache2.pid
 
-exec apache2 -D FOREGROUND
+exec apache2ctl -D FOREGROUND
