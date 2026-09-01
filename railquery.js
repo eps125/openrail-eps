@@ -134,6 +134,20 @@ function H_onclick()
    window.location = result;
 }
 
+function I_onclick()
+{
+   result = url_base + 'I/' + document.getElementById("I-u").value;
+   window.location = result;
+}
+
+function J_onclick()
+{
+   result = url_base + 'J/' +
+      document.getElementById("J-d").value.replace("/", "-").replace("/", "-") + '/' +
+      document.getElementById("J-a").value;
+   window.location = result;
+}
+
 function startup()
 {
 }

@@ -52,6 +52,8 @@ static void report_be(void);
 static void report_f(void);
 static void report_g(void);
 static void report_h(void);
+static void report_i(void);
+static void report_j(void);
 static char * location_name(const char * const tiploc);
 static char * location_name_stanox(const dword stanox);
 static char * describe_schedule(const dword id);
@@ -225,6 +227,14 @@ int main()
       report_h();
       break;
 
+   case 'I':
+      report_i();
+      break;
+
+   case 'J':
+      report_j();
+      break;
+
    case 'Z':
    default:
       display_menu();
@@ -318,8 +328,21 @@ static void display_menu(void)
    printf("Location <input type=\"text\" id=\"G-l\" size=\"20\" maxlength=\"50\" value=\"\" onkeydown=\"if(event.keyCode == 13) G_onclick();\">&nbsp; &nbsp\n");
    printf("<br><button class=\"cp-button\" onclick=\"G_onclick();\">Report</button>\n"
 
-          "</td><td width=\"5%%\">&nbsp;</td><td class=\"control-panel-off\">\n"
-          "&nbsp;</td></tr><tr><td colspan=\"7\" class=\"control-panel-row\">"
+          "</td><td width=\"5%%\">&nbsp;</td><td class=\"control-panel-row\">\n"
+          "<h4>[I]Allocation history</h4>\n"
+          "Unit <input type=\"text\" id=\"I-u\" size=\"8\" maxlength=\"8\" value=\"\" onkeydown=\"if(event.keyCode == 13) I_onclick();\">\n"
+          "<br><button class=\"cp-button\" onclick=\"I_onclick();\">Report</button>\n"
+          "</td></tr>\n"
+
+          "<tr valign=\"top\"><td class=\"control-panel-row\" colspan=\"7\">"
+          "<h4>[J]VSTP schedules</h4>\n"
+          "On date <input type=\"text\" id=\"J-d\" size=\"8\" maxlength=\"8\" placeholder=\"dd/mm/yy\" value=\"\" onkeydown=\"if(event.keyCode == 13) J_onclick();\">&nbsp; &nbsp;\n"
+          "and / or ATOC code <input type=\"text\" id=\"J-a\" size=\"2\" maxlength=\"2\" value=\"\" onkeydown=\"if(event.keyCode == 13) J_onclick();\">&nbsp; &nbsp;\n"
+          "<br>Leave both blank for the most recent VSTPs.\n"
+          "<br><button class=\"cp-button\" onclick=\"J_onclick();\">Report</button>\n"
+          "</td></tr>\n"
+
+          "<tr><td colspan=\"7\" class=\"control-panel-row\">"
           "<h4>[H]Schedules with specific routing</h4>\n");
    printf("Via location <input type=\"text\" id=\"H-l0\" size=\"18\" maxlength=\"50\" value=\"\" onkeydown=\"if(event.keyCode == 13) H_onclick();\">&nbsp; &nbsp\n");
    printf("path <input type=\"text\" id=\"H-l0p\" size=\"2\" maxlength=\"6\" value=\"\" onkeydown=\"if(event.keyCode == 13) H_onclick();\">&nbsp; &nbsp\n");
@@ -347,7 +370,9 @@ static void display_menu(void)
 "<p>A CIF UID is the ID for a schedule in Network Rail's database, it consists of a letter or a space followed by five digits, e.g. Y63320.</p>"
 "<p>Report [F] shows the performance (On time/late/cancelled) of a particular service at the specified location.</p>"
 "<p>Report [G] shows the most recent 250 trains to pass or call at a location.  This is aimed at researching the historical useage of a quiet part of the network.</p>"          
-"<p>Report [H] shows schedules that meet all the specified paramters.  This is aimed at researching the useage of a particular route.</p>"          
+"<p>Report [H] shows schedules that meet all the specified paramters.  This is aimed at researching the useage of a particular route.</p>"
+"<p>Report [I] shows the unit / carriage allocations recorded for a vehicle from the passenger train consist feed.  Click a row to open its schedule.</p>"
+"<p>Report [J] lists VSTP (Very Short Term Planning) schedules, optionally narrowed to a date and / or an ATOC code.</p>"
 "<p>The Open Rail database contains live running data for the past three years and future schedule information up to the limit of Network Rail's published information.</p>"
           );
    printf("</div>\n");
@@ -1604,6 +1629,148 @@ static void report_h(void)
       }
    }      
 }
+static void report_i(void)
+{
+   // [1] Unit number
+   // Recent allocations recorded for a unit, from the RDM consist feed
+   // (train_allocation).  Clicking a row returns to the menu (Z) with the
+   // schedule id and CIF UID pre-filled.
+
+   char query[1536], safe[32];
+
+   if(!parameters[1][0])
+   {
+      printf("<h4>Enter a unit number.</h4>\n");
+      return;
+   }
+   db_real_escape_string(safe, parameters[1], strlen(parameters[1]));
+
+   printf("<h3>Recent allocations recorded for %s</h3>\n", parameters[1]);
+
+   sprintf(query,
+      "SELECT a.reported, DATE_FORMAT(a.schedule_start_date, '%%a %%d/%%m/%%y'), "
+      "a.headcode, TRIM(a.cif_train_uid), a.origin_tiploc, a.origin_dep, a.dest_tiploc, "
+      "(SELECT s.id FROM cif_schedules s "
+      " WHERE TRIM(s.CIF_train_uid) = TRIM(a.cif_train_uid) "
+      "   AND s.schedule_start_date <= UNIX_TIMESTAMP(a.schedule_start_date) + 43200 "
+      "   AND s.schedule_end_date   >= UNIX_TIMESTAMP(a.schedule_start_date) - 43200 "
+      "   AND s.CIF_stp_indicator IN ('N','P','O') "
+      "   AND s.deleted > UNIX_TIMESTAMP(a.schedule_start_date) "
+      " ORDER BY LOCATE(s.CIF_stp_indicator, 'NPO') LIMIT 1) "
+      "FROM train_allocation a WHERE a.unit_no = '%s' "
+      "ORDER BY a.schedule_start_date DESC, a.origin_dep DESC, a.reported DESC LIMIT 500",
+      safe);
+
+   if(db_query(query))
+   {
+      printf("<p>No allocation data available.  (The allocation feed may not be configured on this server.)</p>\n");
+      return;
+   }
+
+   db_result[0] = db_store_result();
+
+   if(text_mode) printf("<pre>Reported           Runs          Service\n");
+   else printf("<table class=\"result-table\"><tr><th>Reported</th><th>Runs</th><th>Service</th></tr>\n");
+
+   word rows = 0;
+   while((db_row[0] = mysql_fetch_row(db_result[0])))
+   {
+      rows++;
+      const char * rep  = db_row[0][0] ? db_row[0][0] : "";
+      const char * runs = db_row[0][1] ? db_row[0][1] : "";
+      const char * head = db_row[0][2] ? db_row[0][2] : "";
+      const char * uid  = db_row[0][3] ? db_row[0][3] : "";
+      const char * otpl = db_row[0][4] ? db_row[0][4] : "";
+      const char * odep = db_row[0][5] ? db_row[0][5] : "";
+      const char * dtpl = db_row[0][6] ? db_row[0][6] : "";
+      const char * sid  = db_row[0][7] ? db_row[0][7] : "";
+
+      // reported "YYYY-MM-DD HH:MM:SS" -> "DD/MM/YY HH:MM:SS"
+      char rep_fmt[24];
+      if(strlen(rep) >= 19)
+         sprintf(rep_fmt, "%c%c/%c%c/%c%c %.8s", rep[8], rep[9], rep[5], rep[6], rep[2], rep[3], rep + 11);
+      else
+      {
+         strncpy(rep_fmt, rep, sizeof(rep_fmt) - 1);
+         rep_fmt[sizeof(rep_fmt) - 1] = '\0';
+      }
+
+      char dep_hhmm[8] = "";
+      if(strlen(odep) >= 16) sprintf(dep_hhmm, "%.5s", odep + 11);
+
+      // location_name() uses a static buffer, so resolve both ends separately.
+      char oname[128], dname[128];
+      strncpy(oname, location_name(otpl), sizeof(oname) - 1); oname[sizeof(oname) - 1] = '\0';
+      strncpy(dname, location_name(dtpl), sizeof(dname) - 1); dname[sizeof(dname) - 1] = '\0';
+
+      if(text_mode)
+      {
+         printf("%-17s  %-12s  %s %s %s to %s\n", rep_fmt, runs, head, dep_hhmm, oname, dname);
+      }
+      else
+      {
+         printf("<tr class=\"result-table\"><td>%s</td><td>%s</td><td>", rep_fmt, runs);
+         if(sid[0])
+            printf("<a class=\"linkbutton\" href=\"%sZ/%s/%s\">%s %s %s to %s</a>",
+                   URL_BASE, sid, uid, head, dep_hhmm, oname, dname);
+         else
+            printf("%s %s %s to %s", head, dep_hhmm, oname, dname);
+         printf("</td></tr>\n");
+      }
+   }
+   mysql_free_result(db_result[0]);
+
+   if(text_mode) printf("</pre>\n");
+   else printf("</table>\n");
+   if(!rows) printf("<h4>None found.</h4>\n");
+}
+
+static void report_j(void)
+{
+   // [1] date  dd-mm-yy (optional)
+   // [2] ATOC code       (optional)
+   // VSTP schedules (cif_schedules.update_id = 0), narrowed by date and/or ATOC.
+
+   char query[1536], q1[512], safe[32];
+   time_t when = parameters[1][0] ? parse_date(parameters[1]) : 0;
+
+   strcpy(query,
+      "SELECT train_status, schedule_start_date, schedule_end_date, signalling_id, CIF_train_uid, "
+      "CIF_stp_indicator, update_id, id, runs_mo, runs_tu, runs_we, runs_th, runs_fr, runs_sa, runs_su, "
+      "deleted, created, deduced_headcode, deduced_headcode_status "
+      "FROM cif_schedules WHERE update_id = 0");
+
+   if(when)
+   {
+      static const char * const dow[7] = {"runs_su","runs_mo","runs_tu","runs_we","runs_th","runs_fr","runs_sa"};
+      struct tm * b = gmtime(&when);
+      sprintf(q1, " AND schedule_start_date <= %ld AND schedule_end_date >= %ld AND deleted > %ld AND %s",
+              when + 12*60*60, when - 12*60*60, when - 12*60*60, dow[b->tm_wday % 7]);
+      strcat(query, q1);
+   }
+
+   if(parameters[2][0])
+   {
+      db_real_escape_string(safe, parameters[2], strlen(parameters[2]));
+      sprintf(q1, " AND atoc_code = '%s'", safe);
+      strcat(query, q1);
+   }
+
+   strcat(query, " ORDER BY created DESC LIMIT 300");
+
+   printf("<h3>VSTP schedules%s%s%s%s</h3>\n",
+          when ? " on " : "", when ? date_text(when, 0) : "",
+          parameters[2][0] ? " for ATOC " : "", parameters[2][0] ? parameters[2] : "");
+
+   if(db_query(query))
+   {
+      printf("<h4>Query failed.</h4>\n");
+      return;
+   }
+   report_be();
+   printf("<p>Most recent 300 shown (newest first).</p>\n");
+}
+
 static char * location_name(const char * const tiploc)
 {
    // Not re-entrant
