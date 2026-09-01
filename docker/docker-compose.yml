@@ -49,6 +49,39 @@ services:
   db:
     image: mariadb:11
     restart: unless-stopped
+    # Tuning is passed as flags (not a mounted my.cnf) so a Portainer git stack
+    # can't drop the file.  Rationale for the values is in docker/my.cnf.
+    # Sized for a VM with >= ~6 GB RAM free for the DB.
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --skip-name-resolve
+      - --max-connections=300
+      - --max-allowed-packet=256M
+      - --innodb-buffer-pool-size=${DB_BUFFER_POOL:-4G}
+      - --innodb-log-buffer-size=128M
+      - --innodb-log-file-size=1G
+      - --innodb-buffer-pool-dump-at-shutdown=1
+      - --innodb-buffer-pool-load-at-startup=1
+      - --innodb-flush-log-at-trx-commit=2
+      - --innodb-flush-method=O_DIRECT
+      - --innodb-file-per-table=1
+      - --innodb-io-capacity=2000
+      - --innodb-io-capacity-max=4000
+      - --innodb-flush-neighbors=0
+      - --innodb-read-io-threads=8
+      - --innodb-write-io-threads=8
+      - --innodb-purge-threads=4
+      - --loose-innodb-snapshot-isolation=OFF
+      - --query-cache-type=0
+      - --query-cache-size=0
+      - --table-open-cache=4000
+      - --table-definition-cache=2000
+      - --tmp-table-size=256M
+      - --max-heap-table-size=256M
+      - --join-buffer-size=8M
+      - --sort-buffer-size=8M
+      - --read-rnd-buffer-size=4M
     environment:
       MARIADB_DATABASE: "${DB_NAME:-rail}"
       MARIADB_USER: "${DB_USER:-rail}"
@@ -57,12 +90,11 @@ services:
       TZ: "${TZ:-Europe/London}"
     volumes:
       - db_data:/var/lib/mysql
-      - ./my.cnf:/etc/mysql/conf.d/openrail.cnf:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
-      retries: 12
+      retries: 20
     # ports:
     #   - "${DB_PORT:-3306}:3306"
 
