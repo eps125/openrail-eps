@@ -176,4 +176,5 @@ Persistent data lives in the `db_data`, `logs` and `spool` named volumes.
 * `jiankong` (monitoring) and `service-report` are built and available in the
   image but not wired into the stack.
 * Timetable + movement history grows continuously - watch the `db_data` volume
-  and tune `innodb_buffer_pool_size` in `my.cnf`.
+  and raise `DB_BUFFER_POOL` (the `db` tuning flags live in `docker-compose.yml`;
+  `docker/my.cnf` is the annotated rationale).
