@@ -73,14 +73,20 @@ done
 tail -n0 -F /var/log/garner/*.log &
 
 log "supervising: ${DAEMONS[*]}"
+tick=0
 while true; do
+    restarted=0
     for d in "${DAEMONS[@]}"; do
         if ! pgrep -x "$d" >/dev/null 2>&1; then
             log "$d is not running - restarting"
             start_one "$d"
+            restarted=1
         fi
     done
-    assert_flows
+    # Re-assert immediately after a restart, otherwise only every ~60s to keep
+    # stompy's log quiet (there is no logrotate in the container).
+    tick=$(( (tick + 1) % 4 ))
+    { [ "$restarted" = 1 ] || [ "$tick" = 0 ]; } && assert_flows
     sleep 15 &
     wait $!
 done
