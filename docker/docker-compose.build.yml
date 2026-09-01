@@ -22,3 +22,5 @@ services:
     build: *openrail-build
   init:
     build: *openrail-build
+  allocation:
+    build: *openrail-build

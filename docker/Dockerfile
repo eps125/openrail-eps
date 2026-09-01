@@ -43,9 +43,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libcurl4 libmariadb3 mariadb-client \
         apache2 cron \
+        python3 python3-pip \
         ca-certificates procps bsd-mailx tzdata tini \
     && rm -rf /var/lib/apt/lists/* \
     && a2enmod cgid rewrite
+
+# --- allocation consumer deps (RDM Kafka feed -> train_allocation table) ---
+# The confluent-kafka wheel bundles librdkafka, so no apt package is needed.
+RUN pip3 install --no-cache-dir --break-system-packages \
+        "confluent-kafka==2.5.3" "PyMySQL==1.1.1"
 
 # --- daemons + batch tools ---
 COPY --from=build \
@@ -66,6 +72,7 @@ COPY cape.sql /usr/local/share/openrail/cape.sql
 
 # --- container glue ---
 COPY docker/bin/ /usr/local/bin/
+COPY docker/allocation/consumer.py /usr/local/lib/openrail/allocation-consumer.py
 COPY docker/apache-openrail.conf /etc/apache2/sites-available/000-default.conf
 COPY docker/openrail.cron        /etc/cron.d/openrail
 

@@ -36,6 +36,14 @@ x-openrail-env: &openrail-env
   LIVE_SERVER: "${LIVE_SERVER:-}"
   OPENRAIL_DEBUG: "${OPENRAIL_DEBUG:-}"
   TZ: "${TZ:-Europe/London}"
+  # RDM "NWR Passenger Train Allocation and Consist" Kafka feed (allocation service).
+  RDM_KAFKA_BOOTSTRAP: "${RDM_KAFKA_BOOTSTRAP:-}"
+  RDM_KAFKA_TOPIC: "${RDM_KAFKA_TOPIC:-}"
+  RDM_KAFKA_GROUP: "${RDM_KAFKA_GROUP:-}"
+  RDM_KAFKA_USER: "${RDM_KAFKA_USER:-}"
+  RDM_KAFKA_PASSWORD: "${RDM_KAFKA_PASSWORD:-}"
+  RDM_KAFKA_OFFSET_RESET: "${RDM_KAFKA_OFFSET_RESET:-latest}"
+  ALLOCATION_KEEP_DAYS: "${ALLOCATION_KEEP_DAYS:-21}"
 
 services:
   db:
@@ -88,6 +96,21 @@ services:
   cron:
     image: *openrail-image
     command: ["openrail-cron"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *openrail-env
+    volumes:
+      - logs:/var/log/garner
+
+  # Kafka consumer for the RDM "NWR Passenger Train Allocation and Consist" feed.
+  # Populates train_allocation, shown by livetrain.cgi as the "Allocations" panel.
+  # Requires RDM_KAFKA_* in the stack env; harmless to leave running unconfigured
+  # (it exits and restarts until the vars are set).
+  allocation:
+    image: *openrail-image
+    command: ["openrail-allocation"]
     restart: unless-stopped
     depends_on:
       db:

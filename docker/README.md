@@ -9,6 +9,7 @@ This folder wraps the upstream openrail C suite into a small Docker stack:
 | `web` | `openrail-web` | Apache + the `liverail` / `livetrain` / `railquery` / `livesig` / `ops` CGIs. |
 | `cron` | `openrail-cron` | Periodic `cifdb` (daily timetable), `archdb`, `corpusdb`. |
 | `init` | `openrail-init` | One-shot: load `cape.sql`, CORPUS + SMART reference data, and the full CIF timetable. Runs only with `--profile init`. |
+| `allocation` | `openrail-allocation` | Kafka consumer for the RDM *"NWR Passenger Train Allocation and Consist"* feed. Writes `train_allocation`, shown by `livetrain.cgi` as the **Allocations** panel. Idle until `RDM_KAFKA_*` is configured. |
 
 All four app containers are the **same image**. `.github/workflows/docker-publish.yml`
 builds it and pushes it to `ghcr.io/<owner>/<repo>` (linux/amd64 + arm64) on every
@@ -104,6 +105,30 @@ Key variables (full list in `.env.example`):
   (defaults match `example.conf`).
 * `INIT_FETCH_TIMETABLE=no` – skip the large `cifdb -a` during `init`.
 * `OPENRAIL_DEBUG=1` – verbose logging.
+
+### Unit allocations (the "Allocations" panel on a train page)
+
+The `allocation` service consumes the Rail Data Marketplace product
+**"NWR Passenger Train Allocation and Consist"** (Apache Kafka, SASL_SSL/PLAIN,
+TAF-TSI `PassengerTrainConsistMessage` XML) and writes a flattened per-unit row
+set into `train_allocation`. `livetrain.cgi` matches it to the displayed service
+on **CIF train UID + service date** (the message `Core` field is
+`headcode(4) + train UID(6) + origin hour(2)`), and renders it as
+*Reported / Unit / Class / Vehicles*.
+
+Subscribe to the product on <https://raildata.org.uk/>, then set in the stack env:
+
+| Variable | |
+|---|---|
+| `RDM_KAFKA_BOOTSTRAP` | e.g. `pkc-...confluent.cloud:9092` (usually the default is fine) |
+| `RDM_KAFKA_TOPIC` | e.g. `prod-1033-Passenger-Train-Allocation-and-Consist-1_0` |
+| `RDM_KAFKA_GROUP` | the consumer group id from your subscription (`SC-...`) |
+| `RDM_KAFKA_USER` / `RDM_KAFKA_PASSWORD` | the SASL credentials from your subscription — **secret** |
+| `RDM_KAFKA_OFFSET_RESET` | `latest` (default) or `earliest` to backfill |
+
+The table is self-created on first run; rows older than `ALLOCATION_KEEP_DAYS`
+(default 21) are purged daily by the consumer. Consists refresh roughly every
+5 minutes, so allow ~10 min after first start for active services to populate.
 
 ### Using an existing database
 

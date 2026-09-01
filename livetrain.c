@@ -43,6 +43,7 @@
 #define TEMP_TABLE 1
 
 static void display_control_panel(const char * const location, const time_t when);
+static void display_allocations(const char * const uid, const time_t when);
 static char * show_date(const time_t time, const byte local);
 static void train(void);
 static void show_running(const time_t when, const word activated);
@@ -394,6 +395,52 @@ static void display_control_panel(const char * const location, const time_t when
    printf("</td><td id=\"progress\" class=\"control-panel-row\" width=\"1%%\" valign=\"top\">&nbsp;");
 
    printf("</td></tr></table>\n");
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+static void display_allocations(const char * const uid, const time_t when)
+{
+   // Unit / consist allocation from the RDM "NWR Passenger Train Allocation and
+   // Consist" feed, loaded by the allocation consumer into train_allocation.
+   // Matched on CIF train UID + service date (both already known here).
+   struct tm * b = gmtime(&when);
+   char datestr[16], trimmed_uid[16], euid[32];
+   word i, j;
+
+   sprintf(datestr, "%04d-%02d-%02d", b->tm_year + 1900, b->tm_mon + 1, b->tm_mday);
+
+   for(i = 0; uid[i] == ' '; i++) ;         // drop any leading pad space
+   for(j = 0; uid[i] && j < sizeof(trimmed_uid) - 1; ) trimmed_uid[j++] = uid[i++];
+   trimmed_uid[j] = '\0';
+   if(!trimmed_uid[0]) return;
+
+   db_real_escape_string(euid, trimmed_uid, strlen(trimmed_uid));
+
+   char query[512];
+   sprintf(query,
+           "SELECT reported, unit_no, fleet_id, vehicles FROM train_allocation "
+           "WHERE TRIM(cif_train_uid) = '%s' AND schedule_start_date = '%s' "
+           "ORDER BY position, unit_no", euid, datestr);
+
+   if(db_query(query)) return;
+
+   MYSQL_RES * result = db_store_result();
+   if(!result) return;
+
+   if(mysql_num_rows(result))
+   {
+      printf("<h3>Allocations for %02d/%02d/%02d</h3>\n", b->tm_mday, b->tm_mon + 1, b->tm_year % 100);
+      printf("<table><tr class=\"small-table\"><th>Reported</th><th>Unit</th><th>Class</th><th>Vehicles</th></tr>\n");
+      MYSQL_ROW row;
+      while((row = mysql_fetch_row(result)))
+      {
+         printf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
+                row[0] ? row[0] : "", row[1] ? row[1] : "",
+                row[2] ? row[2] : "", row[3] ? row[3] : "");
+      }
+      printf("</table><br>\n");
+   }
+   mysql_free_result(result);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -870,6 +917,8 @@ static void train(void)
          }
       }
 
+      // Unit / consist allocation (RDM feed via the allocation consumer).
+      display_allocations(uid, when);
 
       // CR Records              0            1                  2                 3               4             5                      6                  7           8                 9                           10                11              12               13                    14                     15               16
       sprintf(query, "SELECT tiploc_code, tiploc_instance, CIF_train_category, signalling_id, CIF_headcode, CIF_train_service_code, CIF_power_type, CIF_timing_load, CIF_speed, CIF_operating_characteristics, CIF_train_class, CIF_sleepers, CIF_reservations, CIF_connection_indicator, CIF_catering_code, CIF_service_branding, uic_code FROM cif_changes_en_route WHERE cif_schedule_id = %u", schedule_id);

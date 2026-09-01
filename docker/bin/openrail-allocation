@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#
+# Kafka consumer for the RDM "NWR Passenger Train Allocation and Consist" feed.
+# Writes the train_allocation table that livetrain.cgi renders.
+#
+set -euo pipefail
+
+log() { echo "[allocation $(date -u +%FT%TZ)] $*"; }
+
+: "${DB_SERVER:=db}" "${DB_NAME:=rail}" "${DB_USER:=rail}"
+: "${DB_PASSWORD:?DB_PASSWORD must be set}"
+: "${RDM_KAFKA_BOOTSTRAP:?RDM_KAFKA_BOOTSTRAP must be set}"
+: "${RDM_KAFKA_TOPIC:?RDM_KAFKA_TOPIC must be set}"
+: "${RDM_KAFKA_GROUP:?RDM_KAFKA_GROUP must be set}"
+: "${RDM_KAFKA_USER:?RDM_KAFKA_USER must be set}"
+: "${RDM_KAFKA_PASSWORD:?RDM_KAFKA_PASSWORD must be set}"
+
+log "waiting for database ${DB_SERVER}/${DB_NAME} ..."
+until mariadb -h"$DB_SERVER" -u"$DB_USER" -p"$DB_PASSWORD" \
+        --connect-timeout=5 -e 'SELECT 1' "$DB_NAME" >/dev/null 2>&1; do
+    sleep 3
+done
+log "database is up - starting consumer"
+
+exec python3 /usr/local/lib/openrail/allocation-consumer.py
