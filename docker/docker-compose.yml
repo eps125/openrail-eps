@@ -171,6 +171,33 @@ services:
     volumes:
       - logs:/var/log/garner
 
+  # One-shot: create/refresh a read-only user for an external reader (railway-live-maps' garner
+  # bridge). Idempotent - re-run to rotate the password. Set RLM_BRIDGE_USER / RLM_BRIDGE_PASSWORD
+  # in the stack env first, then:
+  #   docker compose --profile grant-bridge-user run --rm grant-bridge-user
+  # (See README.md "External read access". The reader still needs the db port published - DB_PORT.)
+  grant-bridge-user:
+    image: mariadb:11
+    profiles: ["grant-bridge-user"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_NAME: "${DB_NAME:-rail}"
+      DB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD}"
+      RLM_BRIDGE_USER: "${RLM_BRIDGE_USER:-rlm_bridge}"
+      RLM_BRIDGE_PASSWORD: "${RLM_BRIDGE_PASSWORD:?set RLM_BRIDGE_PASSWORD}"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        mariadb -h db -u root -p"$$DB_ROOT_PASSWORD" -e "
+          CREATE USER IF NOT EXISTS '$$RLM_BRIDGE_USER'@'%' IDENTIFIED BY '$$RLM_BRIDGE_PASSWORD';
+          ALTER USER '$$RLM_BRIDGE_USER'@'%' IDENTIFIED BY '$$RLM_BRIDGE_PASSWORD';
+          GRANT SELECT ON \`$$DB_NAME\`.* TO '$$RLM_BRIDGE_USER'@'%';
+          FLUSH PRIVILEGES;" &&
+        echo "grant-bridge-user: '$$RLM_BRIDGE_USER' can now SELECT on $$DB_NAME"
+
 volumes:
   db_data:
   logs:

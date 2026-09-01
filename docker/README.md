@@ -136,23 +136,33 @@ For a downstream reader on the same host/LAN (e.g. [railway-live-maps][rlm]'s
 garner bridge, which sources TRUST/VSTP/CIF-schedule/CORPUS/SMART data from
 here instead of subscribing to Network Rail a second time):
 
-1. Set `DB_PORT` in the stack env (default `3306`) and uncomment the `ports:`
-   block on the `db` service in `docker-compose.yml`, then redeploy. Same
-   tradeoff as any other stack publishing a DB port directly to the host —
-   fine behind a firewall/VPN, don't put it on a raw public IP.
-2. Create a **read-only** user for the reader rather than handing out
-   `DB_USER`/`DB_PASSWORD` (which have full rights, including the schema
-   `DROP`/`CREATE` the daemons issue on upgrade). From a console on the `db`
-   service (or any `mysql` client that can reach it):
-   ```sql
-   CREATE USER 'rlm_bridge'@'%' IDENTIFIED BY 'choose-a-strong-password';
-   GRANT SELECT ON rail.* TO 'rlm_bridge'@'%';
-   FLUSH PRIVILEGES;
+1. **Publish the db port.** The `ports:` block on the `db` service is already
+   uncommented; set `DB_PORT` in the stack env (default `3306`) and redeploy.
+   Same tradeoff as any stack publishing a DB port to the host — fine behind a
+   firewall/VPN, don't put it on a raw public IP.
+
+2. **Create the read-only user.** Never hand out `DB_USER`/`DB_PASSWORD` (full
+   rights, including the schema `DROP`/`CREATE` the daemons issue on upgrade).
+   Set `RLM_BRIDGE_USER` / `RLM_BRIDGE_PASSWORD` in the stack env, then run the
+   one-shot profile service:
    ```
-   (replace `rail` if `DB_NAME` isn't the default). Narrow `'%'` to the
-   reader's actual host/subnet if you can.
-3. Give the reader `DB_PORT`/`rlm_bridge`/the password you chose — never the
-   admin `DB_USER`/`DB_PASSWORD` or `DB_ROOT_PASSWORD`.
+   docker compose --profile grant-bridge-user run --rm grant-bridge-user
+   ```
+   It's idempotent — re-run it to rotate the password. (Or do it by hand from a
+   console on the `db` container: `CREATE USER 'rlm_bridge'@'%' IDENTIFIED BY
+   '…'; GRANT SELECT ON rail.* TO 'rlm_bridge'@'%'; FLUSH PRIVILEGES;` —
+   replace `rail` if `DB_NAME` isn't the default. Narrow `'%'` to the reader's
+   host/subnet if you can.)
+
+3. **Point the reader at it.** Give railway-live-maps `GARNER_DB_HOST` (the
+   Docker host's LAN IP, e.g. `10.1.1.66` — the two stacks are separate Compose
+   projects, so `db` isn't resolvable by name across them; the reader reaches
+   this stack through the published host port), `GARNER_DB_PORT` (= `DB_PORT`),
+   `GARNER_DB_NAME` (= `DB_NAME`), and `GARNER_DB_USER` / `GARNER_DB_PASSWORD`
+   (the `rlm_bridge` credentials — **never** the admin `DB_USER`/`DB_PASSWORD`
+   or `DB_ROOT_PASSWORD`). If you'd rather not expose the port on the host at
+   all, put both stacks on a shared external Docker network instead and use
+   `db` as the host — see your reverse-proxy/network setup.
 
 [rlm]: https://github.com/eps125/railway-live-maps
 
