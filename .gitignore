@@ -1,0 +1,23 @@
+# Build artifacts
+*.o
+/cifdb
+/cifmerge
+/archdb
+/corpusdb
+/smartdb
+/vstpdb
+/trustdb
+/tddb
+/stompy
+/jiankong
+/service-report
+/*.cgi
+
+# Local container config (never commit real credentials)
+docker/.env
+
+# Editor / OS cruft
+*.swp
+*~
+.DS_Store
+Thumbs.db

@@ -1,0 +1,6 @@
+# Keep line endings LF everywhere so the shell scripts and container files work
+# when the image is built on Linux (and on a Windows checkout too).
+* text=auto eol=lf
+
+*.png binary
+*.gz binary

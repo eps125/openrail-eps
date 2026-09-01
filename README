@@ -1,0 +1,13 @@
+openrail
+========
+
+
+A suite of programmes to collect and analyse open rail data, including
+
+cifdb - Fetch timetable / timetable updates and record in database.
+stompy - Collect streamed data and pass on to vistpd and trustdb.
+vstpdb - Receive VSTP timetable updates and record in database.
+trustdb - Receive train movement reports and record in database.
+liverail - Web display of timetable and train running information.
+
+For more information see the GIT Wiki at https://github.com/philwieland/openrail/wiki.

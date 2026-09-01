@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#
+# One-shot bootstrap.  Run it once after first bringing the stack up:
+#
+#   docker compose --profile init run --rm init
+#
+# It:
+#   * waits for the database
+#   * loads cape.sql (cancellation reason codes - not created automatically)
+#   * loads CORPUS location + SMART berth reference data     (needs NR account)
+#   * fetches the full CIF timetable with `cifdb -a`          (needs NR account)
+#
+# All schema tables are created automatically by database_upgrade() the first
+# time any daemon/tool touches the DB, so this script is safe to re-run.
+#
+set -uo pipefail
+
+CONF=/etc/openrail.conf
+log() { echo "[init $(date -u +%FT%TZ)] $*"; }
+
+openrail-render-config
+
+DB_SERVER=${DB_SERVER:-db}; DB_NAME=${DB_NAME:-rail}
+DB_USER=${DB_USER:-rail};   DB_PASSWORD=${DB_PASSWORD:?}
+
+log "Waiting for database ${DB_SERVER}/${DB_NAME} ..."
+until mariadb -h"$DB_SERVER" -u"$DB_USER" -p"$DB_PASSWORD" \
+        --connect-timeout=5 -e 'SELECT 1' "$DB_NAME" >/dev/null 2>&1; do
+    sleep 3
+done
+log "Database is up."
+
+log "Loading cape.sql (cape_reasons) ..."
+mariadb -h"$DB_SERVER" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" \
+    < /usr/local/share/openrail/cape.sql
+log "cape_reasons loaded."
+
+if [ -n "${NR_USER:-}" ] && [ -n "${NR_PASSWORD:-}" ]; then
+    log "Loading CORPUS reference data (corpusdb) ..."
+    corpusdb -c "$CONF" || log "corpusdb returned non-zero (continuing)"
+
+    log "Loading SMART berth data (smartdb) ..."
+    smartdb -c "$CONF" || log "smartdb returned non-zero (continuing)"
+
+    if [ "${INIT_FETCH_TIMETABLE:-yes}" = "yes" ]; then
+        log "Fetching full CIF timetable (cifdb -a) - this can take a while ..."
+        cifdb -c "$CONF" -a || log "cifdb -a returned non-zero (continuing)"
+    else
+        log "INIT_FETCH_TIMETABLE != yes - skipping full timetable fetch."
+    fi
+else
+    log "NR_USER / NR_PASSWORD not set - skipping CORPUS/SMART/timetable load."
+    log "Set them in .env and re-run to pull reference + timetable data."
+fi
+
+log "Init complete."

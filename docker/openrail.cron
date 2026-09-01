@@ -1,0 +1,17 @@
+# /etc/cron.d/openrail - periodic openrail batch jobs.
+# Times are container-local; set TZ in .env (default Europe/London).
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Daily CIF timetable update (Network Rail publish the daily extract ~06:00 UK).
+30 6 * * *  root  cifdb -c /etc/openrail.conf   >> /var/log/garner/cron.log 2>&1
+
+# Archive TRUST movement/activation data older than 90 days into the *_arch
+# tables.  Change -a, or add -d to delete instead of archive.  With no -a it
+# is a harmless no-op.
+15 2 * * *  root  archdb -c /etc/openrail.conf -a 90  >> /var/log/garner/cron.log 2>&1
+
+# Refresh CORPUS location reference data weekly.
+0 4 * * 0   root  corpusdb -c /etc/openrail.conf  >> /var/log/garner/cron.log 2>&1
+
+# Blank line required by cron below this point.

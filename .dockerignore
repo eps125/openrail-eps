@@ -1,0 +1,16 @@
+.git
+memory/
+*.o
+cifdb
+cifmerge
+archdb
+corpusdb
+smartdb
+vstpdb
+trustdb
+tddb
+stompy
+jiankong
+service-report
+*.cgi
+docker/.env

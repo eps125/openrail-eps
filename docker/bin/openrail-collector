@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# Runs stompy + vstpdb + trustdb + tddb in one container (they must share
+# localhost because misc.c open_stompy() connects to "localhost").
+#
+# The daemons fork and detach themselves, so we cannot exec them.  Instead we
+# launch each one, then supervise by pidfile/pgrep and restart any that die -
+# and we replay the "start flow" commands that the upstream init.d scripts
+# send to stompy via /tmp/stompy.cmd + SIGUSR1.
+#
+set -uo pipefail
+
+CONF=/etc/openrail.conf
+DAEMONS=(stompy vstpdb trustdb tddb)
+
+log() { echo "[collector $(date -u +%FT%TZ)] $*"; }
+
+openrail-render-config
+mkdir -p /var/log/garner/web /var/spool/stompy
+: > /var/log/garner/stompy.log
+for d in "${DAEMONS[@]}"; do : >> "/var/log/garner/${d}.log"; done
+
+DB_SERVER=${DB_SERVER:-db}; DB_NAME=${DB_NAME:-rail}
+DB_USER=${DB_USER:-rail};   DB_PASSWORD=${DB_PASSWORD:?}
+
+log "Waiting for database ${DB_SERVER}/${DB_NAME} ..."
+until mariadb -h"$DB_SERVER" -u"$DB_USER" -p"$DB_PASSWORD" \
+        --connect-timeout=5 -e 'SELECT 1' "$DB_NAME" >/dev/null 2>&1; do
+    sleep 3
+done
+log "Database is up."
+
+enable_flows() {
+    # V/T/D = "start VSTP/TRUST/TD flow" (see stompy.c user_command()).
+    printf 'VTD' > /tmp/stompy.cmd
+    pkill -USR1 -x stompy 2>/dev/null || true
+}
+
+start_one() {
+    case "$1" in
+        stompy)
+            log "starting stompy"
+            stompy -c "$CONF" || true
+            for _ in $(seq 1 30); do [ -f /var/run/stompy.pid ] && break; sleep 1; done
+            sleep 2
+            enable_flows
+            ;;
+        *)
+            log "starting $1"
+            "$1" -c "$CONF" || true
+            ;;
+    esac
+}
+
+shutdown() {
+    log "signal received - shutting down"
+    if pgrep -x stompy >/dev/null 2>&1; then
+        printf 's' > /tmp/stompy.cmd          # controlled shutdown: flush spool
+        pkill -USR1 -x stompy 2>/dev/null || true
+        for _ in $(seq 1 25); do pgrep -x stompy >/dev/null 2>&1 || break; sleep 1; done
+    fi
+    for d in vstpdb trustdb tddb stompy; do pkill -TERM -x "$d" 2>/dev/null || true; done
+    exit 0
+}
+trap shutdown TERM INT
+
+for d in "${DAEMONS[@]}"; do start_one "$d"; sleep 2; done
+
+# Surface the daemon logs on container stdout.
+tail -n0 -F /var/log/garner/*.log &
+
+log "supervising: ${DAEMONS[*]}"
+while true; do
+    for d in "${DAEMONS[@]}"; do
+        if ! pgrep -x "$d" >/dev/null 2>&1; then
+            log "$d is not running - restarting"
+            start_one "$d"
+        fi
+    done
+    sleep 15 &
+    wait $!
+done

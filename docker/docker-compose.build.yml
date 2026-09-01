@@ -1,0 +1,24 @@
+# Build override - compile the image locally instead of pulling from GHCR.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml build
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
+#
+# The built image is tagged with whatever OPENRAIL_IMAGE resolves to in
+# docker-compose.yml (default ghcr.io/eps125/openrail-eps:latest), so the same
+# `up` command then runs your local build.
+
+version: "3.8"
+
+x-openrail-build: &openrail-build
+  context: ..
+  dockerfile: docker/Dockerfile
+
+services:
+  collector:
+    build: *openrail-build
+  web:
+    build: *openrail-build
+  cron:
+    build: *openrail-build
+  init:
+    build: *openrail-build

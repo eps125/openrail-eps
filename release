@@ -1,0 +1,161 @@
+#!/bin/bash
+
+# Build 3c22
+
+shopt -s extglob
+host=`hostname`
+
+if [ "$1" = "all" ]; then
+    echo tvd > /tmp/stompy.cmd
+    sudo pkill -SIGUSR1 stompy
+fi
+
+if [ "$1" = "all" -o "$1" = "cifdb" ]; then
+    echo "Releasing cifdb"
+    sudo cp cifdb   /usr/sbin/cifdb
+    DONE="cifdb"
+fi
+
+if [ "$1" = "all" -o "$1" = "cifmerge" ]; then
+    echo "Releasing cifmerge"
+    sudo cp cifmerge   /usr/sbin/cifmerge
+    DONE="cifmerge"
+fi
+
+if [ "$1" = "all" -o "$1" = "jsondb" ]; then
+    echo "Releasing jsondb"
+    sudo cp jsondb   /usr/sbin/jsondb
+    DONE="jsondb"
+fi
+
+if [ "$1" = "all" -o "$1" = "tscdb" ]; then
+    echo "Releasing tscdb"
+    sudo cp tscdb   /usr/sbin/tscdb
+    DONE="tscdb"
+fi
+
+if [ "$1" = "all" -o "$1" = "archdb" ]; then
+    echo "Releasing archdb"
+    sudo cp archdb   /usr/sbin/archdb
+    DONE="archdb"
+fi
+
+if [ "$1" = "all" -o "$1" = "corpusdb" ]; then
+    echo "Releasing corpusdb"
+    sudo cp corpusdb   /usr/sbin/corpusdb
+    DONE="corpusdb"
+fi
+
+if [ "$1" = "all" -o "$1" = "smartdb" ]; then
+    echo "Releasing smartdb"
+    sudo cp smartdb   /usr/sbin/smartdb
+    DONE="smartdb"
+fi
+
+if [ "$1" = "all" -o "$1" = "liverail" ]; then
+    echo "Releasing liverail"
+    sudo mv /usr/lib/cgi-bin/liverail.cgi /usr/lib/cgi-bin/liverail.cgi.tmp
+    sudo cp liverail.cgi        /usr/lib/cgi-bin/liverail.cgi
+    sudo rm /usr/lib/cgi-bin/liverail.cgi.tmp
+    sudo cp liverail.css        /var/www/auxy/liverail.css
+    sudo cp liverail.js         /var/www/auxy/liverail.js
+    DONE="liverail"
+fi
+
+if [ "$1" = "all" -o "$1" = "livetrain" ]; then
+    echo "Releasing livetrain"
+    sudo mv /usr/lib/cgi-bin/livetrain.cgi /usr/lib/cgi-bin/livetrain.cgi.tmp
+    sudo cp livetrain.cgi        /usr/lib/cgi-bin/livetrain.cgi
+    sudo rm /usr/lib/cgi-bin/livetrain.cgi.tmp
+    sudo cp liverail.css        /var/www/auxy/liverail.css
+    sudo cp liverail.js         /var/www/auxy/liverail.js
+    DONE="livetrain"
+fi
+
+if [ "$1" = "all" -o "$1" = "railquery" ]; then
+    echo "Releasing railquery"
+    sudo mv /usr/lib/cgi-bin/railquery.cgi /usr/lib/cgi-bin/railquery.cgi.tmp
+    sudo cp railquery.cgi        /usr/lib/cgi-bin/railquery.cgi
+    sudo rm /usr/lib/cgi-bin/railquery.cgi.tmp
+    sudo cp liverail.css        /var/www/auxy/liverail.css
+    sudo cp railquery.js         /var/www/auxy/railquery.js
+    DONE="railquery"
+fi
+
+if [ "$1" = "all" -o "$1" = "livesig" ]; then
+    echo "Releasing livesig"
+    sudo mv /usr/lib/cgi-bin/livesig.cgi /usr/lib/cgi-bin/livesig.cgi.tmp
+    sudo cp livesig.cgi        /usr/lib/cgi-bin/livesig.cgi
+    sudo rm /usr/lib/cgi-bin/livesig.cgi.tmp
+    sudo cp livesig.css        /var/www/auxy/livesig.css
+    sudo cp livesig.js         /var/www/auxy/livesig.js
+    for f in livesig+([0-9]).svg
+    do
+        echo "   Diagram $f"
+        m4 $f > /tmp/zzz.svg && sudo cp /tmp/zzz.svg /var/www/auxy/$f
+    done
+    DONE="livesig"
+fi
+
+if [ "$1" = "all" -o "$1" = "dump-rail" ]; then
+    echo "Releasing dump-rail"
+    sudo cp dump-rail /usr/sbin/dump-rail 
+    DONE="dump-rail"
+fi
+
+if [ "$1" = "all" -o "$1" = "stompy" ]; then
+    echo "Releasing stompy"
+    sudo /etc/init.d/stompy stop
+    sleep 4 
+    sudo cp stompy /usr/sbin/stompy 
+    sudo /etc/init.d/stompy start
+    DONE="stompy"
+fi
+
+if [ "$1" = "all" -o "$1" = "vstpdb" ]; then
+    echo "Releasing vstpdb"
+    sudo /etc/init.d/vstpdb stop
+    sleep 4 
+    sudo cp vstpdb /usr/sbin/vstpdb 
+    sudo /etc/init.d/vstpdb start
+    DONE="vstpdb"
+fi
+
+if [ "$1" = "all" -o "$1" = "trustdb" ]; then
+    echo "Releasing trustdb"
+    sudo /etc/init.d/trustdb stop
+    sleep 4 
+    sudo cp trustdb /usr/sbin/trustdb 
+    sudo /etc/init.d/trustdb start
+    DONE="trustdb"
+fi
+
+if [ "$1" = "all" -o "$1" = "tddb" ]; then
+    echo "Releasing tddb"
+    sudo /etc/init.d/tddb stop
+    sleep 4 
+    sudo cp tddb /usr/sbin/tddb 
+    sudo /etc/init.d/tddb start
+    DONE="tddb"
+fi
+
+if [ "$1" = "all" -o "$1" = "jiankong" ]; then
+    echo "Releasing jiankong"
+    sudo /etc/init.d/jiankong stop
+    sleep 4 
+    sudo cp jiankong /usr/sbin/jiankong 
+    sudo /etc/init.d/jiankong start
+    DONE="jiankong"
+fi
+
+if [ "$1" = "all" -o "$1" = "ops" ]; then
+    echo "Releasing ops"
+        sudo cp ops.cgi /usr/lib/cgi-bin/secure/ops.cgi 
+        sudo cp liverail.css        /var/www/auxy/liverail.css
+    DONE="ops"
+fi
+
+if [ "$DONE" = "" ]; then
+    echo "Usage:  $0 cifdb|cifmerge|archdb|corpusdb|vstpdb|trustdb|tddb|liverail|livetrain|livesig|railquery|stompy|limed|jiankong|all    -    Release specified unit or all."
+fi
+

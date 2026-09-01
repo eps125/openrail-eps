@@ -1,0 +1,116 @@
+# openrail stack.
+#
+# This file pulls a prebuilt image from GHCR - deploy it straight from Portainer
+# (Stacks -> Add stack -> Repository, compose path docker/docker-compose.yml) and
+# set the variables from .env.example in the stack's Environment variables panel.
+#
+# To build the image locally instead of pulling, add the build override:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# First-run bootstrap (loads reference data + timetable), run once:
+#   docker compose --profile init run --rm init
+
+version: "3.8"
+
+# Image used by every app container.  The GitHub Actions workflow publishes
+# ghcr.io/<owner>/<repo>; override OPENRAIL_IMAGE if you deployed your own fork.
+x-openrail-image: &openrail-image "${OPENRAIL_IMAGE:-ghcr.io/eps125/openrail-eps:latest}"
+
+# Environment shared by every app container.
+x-openrail-env: &openrail-env
+  DB_SERVER: db
+  DB_NAME: "${DB_NAME:-rail}"
+  DB_USER: "${DB_USER:-rail}"
+  DB_PASSWORD: "${DB_PASSWORD:?set DB_PASSWORD}"
+  NR_USER: "${NR_USER:-}"
+  NR_PASSWORD: "${NR_PASSWORD:-}"
+  NR_SERVER: "${NR_SERVER:-datafeeds.networkrail.co.uk}"
+  NR_STOMP_PORT: "${NR_STOMP_PORT:-}"
+  PUBLIC_URL: "${PUBLIC_URL:-}"
+  REPORT_EMAIL: "${REPORT_EMAIL:-}"
+  STOMP_TOPICS: "${STOMP_TOPICS:-VSTP_ALL;TRAIN_MVT_ALL_TOC;TD_ALL_SIG_AREA}"
+  STOMP_TOPIC_NAMES: "${STOMP_TOPIC_NAMES:-VSTP;TRUST;TD}"
+  STOMP_TOPIC_LOG: "${STOMP_TOPIC_LOG:-false;false;false;false}"
+  INIT_FETCH_TIMETABLE: "${INIT_FETCH_TIMETABLE:-yes}"
+  TRUSTDB_NO_DEDUCE_ACT: "${TRUSTDB_NO_DEDUCE_ACT:-}"
+  LIVE_SERVER: "${LIVE_SERVER:-}"
+  OPENRAIL_DEBUG: "${OPENRAIL_DEBUG:-}"
+  TZ: "${TZ:-Europe/London}"
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: "${DB_NAME:-rail}"
+      MARIADB_USER: "${DB_USER:-rail}"
+      MARIADB_PASSWORD: "${DB_PASSWORD:?set DB_PASSWORD}"
+      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD}"
+      TZ: "${TZ:-Europe/London}"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./my.cnf:/etc/mysql/conf.d/openrail.cnf:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    # ports:
+    #   - "${DB_PORT:-3306}:3306"
+
+  collector:
+    image: *openrail-image
+    command: ["openrail-collector"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *openrail-env
+    volumes:
+      - logs:/var/log/garner
+      - spool:/var/spool/stompy
+    stop_grace_period: 40s
+
+  web:
+    image: *openrail-image
+    command: ["openrail-web"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *openrail-env
+    ports:
+      # Change the host port with WEB_PORT (container port stays 80).
+      - "${WEB_PORT:-8080}:80"
+    volumes:
+      - logs:/var/log/garner
+
+  cron:
+    image: *openrail-image
+    command: ["openrail-cron"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *openrail-env
+    volumes:
+      - logs:/var/log/garner
+
+  # One-shot bootstrap - only runs when explicitly selected:
+  #   docker compose --profile init run --rm init
+  init:
+    image: *openrail-image
+    command: ["openrail-init"]
+    profiles: ["init"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *openrail-env
+    volumes:
+      - logs:/var/log/garner
+
+volumes:
+  db_data:
+  logs:
+  spool:

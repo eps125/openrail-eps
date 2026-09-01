@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#
+# Apache front-end for the openrail CGI programs.
+#
+set -euo pipefail
+
+openrail-render-config
+mkdir -p /var/log/garner/web
+chown -R www-data:www-data /var/log/garner/web
+
+# shellcheck disable=SC1091
+source /etc/apache2/envvars
+rm -f "${APACHE_PID_FILE:-/var/run/apache2/apache2.pid}"
+mkdir -p "${APACHE_RUN_DIR:-/var/run/apache2}"
+
+exec apache2 -D FOREGROUND

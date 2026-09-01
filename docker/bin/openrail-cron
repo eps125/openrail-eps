@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#
+# Runs the periodic batch jobs (see /etc/cron.d/openrail).
+#
+set -euo pipefail
+
+openrail-render-config
+mkdir -p /var/log/garner
+: >> /var/log/garner/cron.log
+
+# Stream the cron job output to container stdout.
+tail -n0 -F /var/log/garner/cron.log &
+
+exec cron -f -L 15
