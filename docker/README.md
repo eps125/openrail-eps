@@ -130,6 +130,32 @@ The table is self-created on first run; rows older than `ALLOCATION_KEEP_DAYS`
 (default 21) are purged daily by the consumer. Consists refresh roughly every
 5 minutes, so allow ~10 min after first start for active services to populate.
 
+### External read access
+
+For a downstream reader on the same host/LAN (e.g. [railway-live-maps][rlm]'s
+garner bridge, which sources TRUST/VSTP/CIF-schedule/CORPUS/SMART data from
+here instead of subscribing to Network Rail a second time):
+
+1. Set `DB_PORT` in the stack env (default `3306`) and uncomment the `ports:`
+   block on the `db` service in `docker-compose.yml`, then redeploy. Same
+   tradeoff as any other stack publishing a DB port directly to the host —
+   fine behind a firewall/VPN, don't put it on a raw public IP.
+2. Create a **read-only** user for the reader rather than handing out
+   `DB_USER`/`DB_PASSWORD` (which have full rights, including the schema
+   `DROP`/`CREATE` the daemons issue on upgrade). From a console on the `db`
+   service (or any `mysql` client that can reach it):
+   ```sql
+   CREATE USER 'rlm_bridge'@'%' IDENTIFIED BY 'choose-a-strong-password';
+   GRANT SELECT ON rail.* TO 'rlm_bridge'@'%';
+   FLUSH PRIVILEGES;
+   ```
+   (replace `rail` if `DB_NAME` isn't the default). Narrow `'%'` to the
+   reader's actual host/subnet if you can.
+3. Give the reader `DB_PORT`/`rlm_bridge`/the password you chose — never the
+   admin `DB_USER`/`DB_PASSWORD` or `DB_ROOT_PASSWORD`.
+
+[rlm]: https://github.com/eps125/railway-live-maps
+
 ### Using an existing database
 
 Drop the `db` service, remove the `depends_on: db` blocks, and set

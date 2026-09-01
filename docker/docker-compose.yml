@@ -95,8 +95,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
-    # ports:
-    #   - "${DB_PORT:-3306}:3306"
+    # Exposed so an external reader (e.g. railway-live-maps' garner bridge, on the
+    # same host/LAN) can pull TRUST/VSTP/CIF/CORPUS/SMART data via a read-only user —
+    # see README.md's "External read access" section for the GRANT to run instead of
+    # handing out DB_USER/DB_PASSWORD. Same tradeoff as any other single-operator
+    # stack publishing a DB port directly: fine behind a firewall/VPN, not on a raw
+    # public IP. Leave commented out (default) if nothing external needs to read it.
+    ports:
+      - "${DB_PORT:-3306}:3306"
 
   collector:
     image: *openrail-image
