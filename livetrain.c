@@ -417,9 +417,13 @@ static void display_allocations(const char * const uid, const time_t when)
    db_real_escape_string(euid, trimmed_uid, strlen(trimmed_uid));
 
    char query[512];
+   // No TRIM(cif_train_uid): euid is already trimmed above, and the column is
+   // always written as a clean value (see consumer.py) - comparing directly
+   // lets this use the leading columns of UNIQUE KEY uq_unit(cif_train_uid,
+   // schedule_start_date, unit_no) instead of scanning the whole table.
    sprintf(query,
            "SELECT reported, unit_no, fleet_id, vehicles FROM train_allocation "
-           "WHERE TRIM(cif_train_uid) = '%s' AND schedule_start_date = '%s' "
+           "WHERE cif_train_uid = '%s' AND schedule_start_date = '%s' "
            "ORDER BY position, unit_no", euid, datestr);
 
    if(db_query(query)) return;

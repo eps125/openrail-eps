@@ -1651,7 +1651,11 @@ static void report_i(void)
       "SELECT a.reported, DATE_FORMAT(a.schedule_start_date, '%%a %%d/%%m/%%y'), "
       "a.headcode, TRIM(a.cif_train_uid), a.origin_tiploc, a.origin_dep, a.dest_tiploc, "
       "(SELECT s.id FROM cif_schedules s "
-      " WHERE TRIM(s.CIF_train_uid) = TRIM(a.cif_train_uid) "
+      // No TRIM() here: it would stop MySQL using INDEX(CIF_train_uid) and force a
+      // full scan of cif_schedules per row.  train_allocation.cif_train_uid is always
+      // written as a clean 6-char UID (see consumer.py parse_message), so this can
+      // compare directly against the CHAR(6) column.
+      " WHERE s.CIF_train_uid = a.cif_train_uid "
       "   AND s.schedule_start_date <= UNIX_TIMESTAMP(a.schedule_start_date) + 43200 "
       "   AND s.schedule_end_date   >= UNIX_TIMESTAMP(a.schedule_start_date) - 43200 "
       "   AND s.CIF_stp_indicator IN ('N','P','O') "

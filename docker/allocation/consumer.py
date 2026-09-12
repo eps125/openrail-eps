@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS train_allocation (
 ) ENGINE=InnoDB
 """
 
+# Applied after DDL, each independently (older tables may be missing an index
+# added later).  unit_no had no index at all, so [I] Allocation history did a
+# full table scan that got slower every day as train_allocation grew.
+MIGRATIONS = [
+    "ALTER TABLE train_allocation ADD INDEX IF NOT EXISTS k_unit (unit_no, schedule_start_date)",
+]
+
 
 def _dt(s):
     """'2026-09-01T13:19:03' -> '2026-09-01 13:19:03' (or None)."""
@@ -174,6 +181,11 @@ class DB:
                 self.conn = pymysql.connect(**self.kw)
                 with self.conn.cursor() as c:
                     c.execute(DDL)
+                    for stmt in MIGRATIONS:
+                        try:
+                            c.execute(stmt)
+                        except Exception as e:  # noqa: BLE001
+                            log("migration skipped:", stmt, "-", e)
                 log("database connected")
                 return
             except Exception as e:  # noqa: BLE001
