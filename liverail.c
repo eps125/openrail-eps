@@ -1364,14 +1364,17 @@ static void report_train_summary(const word index, const time_t when, const word
          bus = (row0[0][0] == 'B' || row0[0][0] == '5');
 
          // To
+         char boundary_tiploc[16];
+         boundary_tiploc[0] = '\0';
          sprintf(query, "SELECT tiploc_code FROM cif_schedule_locations where cif_schedule_id = %u AND record_identity = 'LT'", calls[index].garner_schedule_id);
          if(!db_query(query))
          {
             result1 = db_store_result();
-            
+
             if((row1 = mysql_fetch_row(result1)))
             {
                strcpy(destination, location_name(row1[0], true));
+               strcpy(boundary_tiploc, row1[0]);
             }
             mysql_free_result(result1);
          }
@@ -1383,23 +1386,26 @@ static void report_train_summary(const word index, const time_t when, const word
             if(!db_query(query))
             {
                result1 = db_store_result();
-            
+
                if((row1 = mysql_fetch_row(result1)))
                {
                   strcpy(destination, "From ");
                   strcat(destination, location_name(row1[0], true));
+                  strcpy(boundary_tiploc, row1[0]);
                }
                mysql_free_result(result1);
             }
          }
 
-         // docs/adr/0009 (RLM repo), owner spec 2026-09-17: reflect a TRUST Change of Origin (this
-         // row is showing "From <origin>" because the train terminates here) or a part-cancellation
-         // (read as the run's new effective destination - TRUST has no dedicated "change of
-         // destination" message) here on the summary/departure/panel boards, without strikethrough
-         // - unlike the per-train detail page (livetrain.c), these boards should just show what's
-         // actually true now. Self-contained: looks up its own trust_id rather than depending on
-         // the status/movement block below, since that runs later and only when not `cancelled_by`.
+         // docs/adr/0009/0011 (RLM repo), owner spec/correction 2026-09-17: reflect a TRUST Change
+         // of Origin (this row is showing "From <origin>" because the train terminates here), a
+         // part-cancellation (read as the run's new effective destination - TRUST has no dedicated
+         // "change of destination" message), or a Change of Location revising this same boundary
+         // point (`boundary_tiploc`, whichever of LT/LO this row is actually showing) here on the
+         // summary/departure/panel boards, without strikethrough - unlike the per-train detail page
+         // (livetrain.c), these boards should just show what's actually true now. Self-contained:
+         // looks up its own trust_id rather than depending on the status/movement block below,
+         // since that runs later and only when not `cancelled_by`.
          if(!calls[index].cancelled_by)
          {
             char q2[512], revised_trust_id[16];
@@ -1418,15 +1424,15 @@ static void report_train_summary(const word index, const time_t when, const word
 
             if(revised_trust_id[0])
             {
+               char boundary_stanox[16];
+               boundary_stanox[0] = '\0';
+
                if(calls[index].terminates)
                {
                   sprintf(q2, "SELECT loc_stanox FROM trust_changeorigin WHERE trust_id='%s' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", revised_trust_id, when - 15*24*60*60, when + 15*24*60*60);
                   if(!db_query(q2) && (result2 = db_store_result()))
                   {
-                     if((row2 = mysql_fetch_row(result2)) && row2[0][0])
-                     {
-                        sprintf(destination, "From %s", show_stanox(row2[0]));
-                     }
+                     if((row2 = mysql_fetch_row(result2)) && row2[0][0]) strcpy(boundary_stanox, row2[0]);
                      mysql_free_result(result2);
                   }
                }
@@ -1435,12 +1441,43 @@ static void report_train_summary(const word index, const time_t when, const word
                   sprintf(q2, "SELECT loc_stanox, reinstate FROM trust_cancellation WHERE trust_id='%s' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", revised_trust_id, when - 15*24*60*60, when + 15*24*60*60);
                   if(!db_query(q2) && (result2 = db_store_result()))
                   {
-                     if((row2 = mysql_fetch_row(result2)) && row2[0][0] && !atoi(row2[1]))
+                     if((row2 = mysql_fetch_row(result2)) && row2[0][0] && !atoi(row2[1])) strcpy(boundary_stanox, row2[0]);
+                     mysql_free_result(result2);
+                  }
+               }
+
+               // A Change of Location revising this exact boundary point (LT, or LO when this row
+               // terminates here) overrides the same way - checked last, so it wins when present
+               // (matches livetrain.c's own documented scope-limit: not timestamp-compared against
+               // the above, kept simple and reviewable for this uncompiled C).
+               if(boundary_tiploc[0])
+               {
+                  sprintf(q2, "SELECT original_stanox, stanox FROM trust_changelocation WHERE trust_id='%s' AND created > %ld AND created < %ld ORDER BY created", revised_trust_id, when - 15*24*60*60, when + 15*24*60*60);
+                  if(!db_query(q2))
+                  {
+                     MYSQL_RES * result3;
+                     MYSQL_ROW row3;
+                     result2 = db_store_result();
+                     while((row2 = mysql_fetch_row(result2)))
                      {
-                        strcpy(destination, show_stanox(row2[0]));
+                        char q3[256], changed_tiploc[16];
+                        changed_tiploc[0] = '\0';
+                        sprintf(q3, "SELECT tiploc FROM corpus WHERE stanox = %s", row2[0]);
+                        if(!db_query(q3) && (result3 = db_store_result()))
+                        {
+                           if((row3 = mysql_fetch_row(result3)) && row3[0][0]) strcpy(changed_tiploc, row3[0]);
+                           mysql_free_result(result3);
+                        }
+                        if(changed_tiploc[0] && !strcmp(changed_tiploc, boundary_tiploc)) strcpy(boundary_stanox, row2[1]);
                      }
                      mysql_free_result(result2);
                   }
+               }
+
+               if(boundary_stanox[0])
+               {
+                  if(calls[index].terminates) sprintf(destination, "From %s", show_stanox(boundary_stanox));
+                  else strcpy(destination, show_stanox(boundary_stanox));
                }
             }
          }

@@ -570,6 +570,10 @@ static void train(void)
    display_control_panel("", when);
 
    train[0] = '\0';
+   // Captured here so the header-override block below (docs/adr/0011, RLM repo) can tell whether
+   // a Change of Origin/Location/cancellation actually applies to *this* schedule's own booked
+   // first/last calling point, without re-querying cif_schedule_locations again.
+   char origin_tiploc_static[16] = "", destination_tiploc_static[16] = "", origin_departure_static[16] = "";
 
    sprintf(query, "SELECT tiploc_code, departure FROM cif_schedule_locations WHERE record_identity = 'LO' AND cif_schedule_id = %u", schedule_id);
    if(!db_query(query))
@@ -577,7 +581,9 @@ static void train(void)
       result0 = db_store_result();
       if((row0 = mysql_fetch_row(result0)))
       {
-         sprintf(train, "%s %s to ", show_time(row0[1]), location_name(row0[0], true));
+         strcpy(origin_departure_static, show_time(row0[1]));
+         sprintf(train, "%s %s to ", origin_departure_static, location_name(row0[0], true));
+         strcpy(origin_tiploc_static, row0[0]);
       }
       mysql_free_result(result0);
    }
@@ -588,6 +594,7 @@ static void train(void)
       if((row0 = mysql_fetch_row(result0)))
       {
          strcat (train, location_name(row0[0], true));
+         strcpy(destination_tiploc_static, row0[0]);
       }
       mysql_free_result(result0);
    }
@@ -639,57 +646,141 @@ static void train(void)
          // -> "420C02C417" is headcode 6C02 -> 0C02). trust_id format: 2-digit start hour + this
          // 4-character headcode + 2-character TOC + 2-digit day of month - the same format this
          // file already relies on elsewhere for the day-of-month substring (`substring(trust_id
-         // FROM 9)`, used just below and in liverail.c). Shown here, on the page's own title, as
-         // struck-through old headcode + new headcode replacing it - the message log below stays
-         // plain text (owner correction: no strikethrough there).
-         {
-            char header_headcode[64], q2[512], trust_id_lookup[16], final_trust_id[16], cursor4[16];
-            MYSQL_RES * result4;
-            MYSQL_ROW row4;
-            struct tm broken4 = *gmtime(&when);
-            byte dom4 = broken4.tm_mday;
-            word hop4;
-            strcpy(header_headcode, headcode);
-            trust_id_lookup[0] = '\0';
+         // FROM 9)`, used just below and in liverail.c). Shown here, and further below in the
+         // "Signalling ID" row of the table on the left, as struck-through old headcode + new
+         // headcode replacing it - the message log stays plain text (owner correction: no
+         // strikethrough there). `header_headcode`/`trust_id_lookup` stay in scope (deliberately
+         // not wrapped in their own `{}`) so the "Signalling ID" row further down can reuse them.
+         char header_headcode[64], q2[512], trust_id_lookup[16], final_trust_id[16], cursor4[16];
+         MYSQL_RES * result4;
+         MYSQL_ROW row4;
+         struct tm broken4 = *gmtime(&when);
+         byte dom4 = broken4.tm_mday;
+         word hop4;
+         strcpy(header_headcode, headcode);
+         trust_id_lookup[0] = '\0';
 
-            sprintf(q2, "SELECT trust_id FROM trust_activation WHERE cif_schedule_id = %u AND substring(trust_id FROM 9) = '%02d' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", schedule_id, dom4, when - 15*24*60*60, when + 15*24*60*60);
-            if(!db_query(q2) && (result4 = db_store_result()))
+         sprintf(q2, "SELECT trust_id FROM trust_activation WHERE cif_schedule_id = %u AND substring(trust_id FROM 9) = '%02d' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", schedule_id, dom4, when - 15*24*60*60, when + 15*24*60*60);
+         if(!db_query(q2) && (result4 = db_store_result()))
+         {
+            if((row4 = mysql_fetch_row(result4)) && row4[0][0]) strcpy(trust_id_lookup, row4[0]);
+            mysql_free_result(result4);
+         }
+
+         if(trust_id_lookup[0])
+         {
+            strcpy(cursor4, trust_id_lookup);
+            strcpy(final_trust_id, trust_id_lookup);
+            for(hop4 = 0; hop4 < 4; hop4++)
             {
-               if((row4 = mysql_fetch_row(result4)) && row4[0][0]) strcpy(trust_id_lookup, row4[0]);
+               sprintf(q2, "SELECT new_trust_id FROM trust_changeid WHERE trust_id='%s' ORDER BY created DESC LIMIT 1", cursor4);
+               if(db_query(q2)) break;
+               result4 = db_store_result();
+               row4 = mysql_fetch_row(result4);
+               if(!row4 || !row4[0][0])
+               {
+                  if(result4) mysql_free_result(result4);
+                  break;
+               }
+               strcpy(cursor4, row4[0]);
+               strcpy(final_trust_id, cursor4);
                mysql_free_result(result4);
             }
 
-            if(trust_id_lookup[0])
+            if(strlen(trust_id_lookup) == 10 && strlen(final_trust_id) == 10 && strcmp(trust_id_lookup, final_trust_id))
             {
-               strcpy(cursor4, trust_id_lookup);
-               strcpy(final_trust_id, trust_id_lookup);
-               for(hop4 = 0; hop4 < 4; hop4++)
+               char old_hc[5], new_hc[5];
+               strncpy(old_hc, trust_id_lookup + 2, 4);  old_hc[4] = '\0';
+               strncpy(new_hc, final_trust_id + 2, 4);   new_hc[4] = '\0';
+               if(strcmp(old_hc, new_hc)) sprintf(header_headcode, "<s>%s</s> %s", old_hc, new_hc);
+            }
+
+            // docs/adr/0011 (RLM repo), owner-confirmed 2026-09-17: this heading's "Origin to
+            // Destination" text, overridden the same way liverail.c's summary boards are - a
+            // Change of Origin, a part-cancellation (read as the new destination - TRUST has no
+            // dedicated "change of destination" message), or a Change of Location revising the
+            // schedule's own first/last calling point. Checked against `trust_id_lookup` only,
+            // not the full identity chain above - matches liverail.c's own documented scope-limit
+            // for the same reason (kept small and reviewable; this C code can't be compiled in
+            // the environment that wrote it).
+            {
+               char new_origin_stanox[16], new_dest_stanox[16];
+               new_origin_stanox[0] = new_dest_stanox[0] = '\0';
+
+               sprintf(q2, "SELECT loc_stanox FROM trust_changeorigin WHERE trust_id='%s' ORDER BY created DESC LIMIT 1", trust_id_lookup);
+               if(!db_query(q2) && (result4 = db_store_result()))
                {
-                  sprintf(q2, "SELECT new_trust_id FROM trust_changeid WHERE trust_id='%s' ORDER BY created DESC LIMIT 1", cursor4);
-                  if(db_query(q2)) break;
-                  result4 = db_store_result();
-                  row4 = mysql_fetch_row(result4);
-                  if(!row4 || !row4[0][0])
-                  {
-                     if(result4) mysql_free_result(result4);
-                     break;
-                  }
-                  strcpy(cursor4, row4[0]);
-                  strcpy(final_trust_id, cursor4);
+                  if((row4 = mysql_fetch_row(result4)) && row4[0][0]) strcpy(new_origin_stanox, row4[0]);
                   mysql_free_result(result4);
                }
 
-               if(strlen(trust_id_lookup) == 10 && strlen(final_trust_id) == 10 && strcmp(trust_id_lookup, final_trust_id))
+               sprintf(q2, "SELECT loc_stanox, reinstate FROM trust_cancellation WHERE trust_id='%s' ORDER BY created DESC LIMIT 1", trust_id_lookup);
+               if(!db_query(q2) && (result4 = db_store_result()))
                {
-                  char old_hc[5], new_hc[5];
-                  strncpy(old_hc, trust_id_lookup + 2, 4);  old_hc[4] = '\0';
-                  strncpy(new_hc, final_trust_id + 2, 4);   new_hc[4] = '\0';
-                  if(strcmp(old_hc, new_hc)) sprintf(header_headcode, "<s>%s</s> %s", old_hc, new_hc);
+                  if((row4 = mysql_fetch_row(result4)) && row4[0][0] && !atoi(row4[1])) strcpy(new_dest_stanox, row4[0]);
+                  mysql_free_result(result4);
+               }
+
+               if(origin_tiploc_static[0] || destination_tiploc_static[0])
+               {
+                  sprintf(q2, "SELECT original_stanox, stanox FROM trust_changelocation WHERE trust_id='%s' ORDER BY created", trust_id_lookup);
+                  if(!db_query(q2))
+                  {
+                     MYSQL_RES * result5;
+                     MYSQL_ROW row5;
+                     result4 = db_store_result();
+                     while((row4 = mysql_fetch_row(result4)))
+                     {
+                        char q3[256], changed_tiploc[16];
+                        changed_tiploc[0] = '\0';
+                        sprintf(q3, "SELECT tiploc FROM corpus WHERE stanox = %s", row4[0]);
+                        if(!db_query(q3) && (result5 = db_store_result()))
+                        {
+                           if((row5 = mysql_fetch_row(result5)) && row5[0][0]) strcpy(changed_tiploc, row5[0]);
+                           mysql_free_result(result5);
+                        }
+                        if(changed_tiploc[0] && origin_tiploc_static[0] && !strcmp(changed_tiploc, origin_tiploc_static))
+                        {
+                           strcpy(new_origin_stanox, row4[1]);
+                        }
+                        if(changed_tiploc[0] && destination_tiploc_static[0] && !strcmp(changed_tiploc, destination_tiploc_static))
+                        {
+                           strcpy(new_dest_stanox, row4[1]);
+                        }
+                     }
+                     mysql_free_result(result4);
+                  }
+               }
+
+               if(new_origin_stanox[0] || new_dest_stanox[0])
+               {
+                  char origin_name[128], dest_name[128];
+                  strcpy(origin_name, origin_tiploc_static[0] ? location_name(origin_tiploc_static, true) : "");
+                  strcpy(dest_name, destination_tiploc_static[0] ? location_name(destination_tiploc_static, true) : "");
+                  if(new_origin_stanox[0])
+                  {
+                     sprintf(q2, "SELECT tiploc FROM corpus WHERE stanox = %s", new_origin_stanox);
+                     if(!db_query(q2) && (result4 = db_store_result()))
+                     {
+                        if((row4 = mysql_fetch_row(result4)) && row4[0][0]) strcpy(origin_name, location_name(row4[0], true));
+                        mysql_free_result(result4);
+                     }
+                  }
+                  if(new_dest_stanox[0])
+                  {
+                     sprintf(q2, "SELECT tiploc FROM corpus WHERE stanox = %s", new_dest_stanox);
+                     if(!db_query(q2) && (result4 = db_store_result()))
+                     {
+                        if((row4 = mysql_fetch_row(result4)) && row4[0][0]) strcpy(dest_name, location_name(row4[0], true));
+                        mysql_free_result(result4);
+                     }
+                  }
+                  sprintf(train, "%s %s to %s", origin_departure_static, origin_name, dest_name);
                }
             }
-
-            printf("<h2>Service %u (%s) %s %s</h2>\n", schedule_id, show_spaces(row0[3]), header_headcode, train);
          }
+
+         printf("<h2>Service %u (%s) %s %s</h2>\n", schedule_id, show_spaces(row0[3]), header_headcode, train);
          strcpy(uid, row0[3]);
 
          // DATE WARNING
@@ -775,7 +866,10 @@ static void train(void)
          printf("</td></tr>\n");
          printf("<tr><td>Schedule Dates</td><td colspan=2>%s", date_text(atol(row0[23]), 0));
          printf(" - %s</td></tr>", date_text(atol(row0[7]), 0));
-         printf("<tr><td>Signalling ID</td><td>%s</td><td></td></tr>", row0[8]);
+         // Owner request 2026-09-17: struck-through old headcode + new headcode, same as the
+         // page's own <h2> title above (`header_headcode`, docs/adr/0011 in the RLM repo) - not
+         // the raw static `row0[8]` any Change of Identity has since superseded.
+         printf("<tr><td>Signalling ID</td><td>%s</td><td></td></tr>", header_headcode);
          printf("<tr><td>Deduced headcode</td><td>%s</td><td>", row0[34]);
          if(row0[35][0]) printf("(Status %s)", row0[35]);
          printf("</td></tr>");
