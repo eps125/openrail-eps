@@ -1393,6 +1393,58 @@ static void report_train_summary(const word index, const time_t when, const word
             }
          }
 
+         // docs/adr/0009 (RLM repo), owner spec 2026-09-17: reflect a TRUST Change of Origin (this
+         // row is showing "From <origin>" because the train terminates here) or a part-cancellation
+         // (read as the run's new effective destination - TRUST has no dedicated "change of
+         // destination" message) here on the summary/departure/panel boards, without strikethrough
+         // - unlike the per-train detail page (livetrain.c), these boards should just show what's
+         // actually true now. Self-contained: looks up its own trust_id rather than depending on
+         // the status/movement block below, since that runs later and only when not `cancelled_by`.
+         if(!calls[index].cancelled_by)
+         {
+            char q2[512], revised_trust_id[16];
+            MYSQL_RES * result2;
+            MYSQL_ROW row2;
+            struct tm broken2 = *gmtime(&start_date);
+            byte dom2 = broken2.tm_mday;
+            revised_trust_id[0] = '\0';
+
+            sprintf(q2, "SELECT trust_id FROM trust_activation WHERE cif_schedule_id = %u AND substring(trust_id FROM 9) = '%02d' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", calls[index].garner_schedule_id, dom2, when - 15*24*60*60, when + 15*24*60*60);
+            if(!db_query(q2) && (result2 = db_store_result()))
+            {
+               if((row2 = mysql_fetch_row(result2)) && row2[0][0]) strcpy(revised_trust_id, row2[0]);
+               mysql_free_result(result2);
+            }
+
+            if(revised_trust_id[0])
+            {
+               if(calls[index].terminates)
+               {
+                  sprintf(q2, "SELECT loc_stanox FROM trust_changeorigin WHERE trust_id='%s' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", revised_trust_id, when - 15*24*60*60, when + 15*24*60*60);
+                  if(!db_query(q2) && (result2 = db_store_result()))
+                  {
+                     if((row2 = mysql_fetch_row(result2)) && row2[0][0])
+                     {
+                        sprintf(destination, "From %s", show_stanox(row2[0]));
+                     }
+                     mysql_free_result(result2);
+                  }
+               }
+               else
+               {
+                  sprintf(q2, "SELECT loc_stanox, reinstate FROM trust_cancellation WHERE trust_id='%s' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", revised_trust_id, when - 15*24*60*60, when + 15*24*60*60);
+                  if(!db_query(q2) && (result2 = db_store_result()))
+                  {
+                     if((row2 = mysql_fetch_row(result2)) && row2[0][0] && !atoi(row2[1]))
+                     {
+                        strcpy(destination, show_stanox(row2[0]));
+                     }
+                     mysql_free_result(result2);
+                  }
+               }
+            }
+         }
+
          _log(DEBUG, "Got destination = \"%s\"", destination);
 
          if(row0[3][0]) strcpy(headcode, row0[3]);
@@ -1469,6 +1521,39 @@ static void report_train_summary(const word index, const time_t when, const word
                mysql_free_result(result1);
             }
 
+            // docs/adr/0009 (RLM repo), owner spec 2026-09-17: a Change of Identity means later
+            // TRUST messages (movements in particular) arrive under a *different* trust_id - build
+            // the small chain of ids this run has been known by so the movement lookup below finds
+            // them regardless of which one they were actually reported under. Bounded to 4 hops -
+            // guards a same-id cycle in production data, not a believed real chain length.
+            char trust_id_chain[128];
+            sprintf(trust_id_chain, "'%s'", trust_id);
+            if(status)
+            {
+               char chain_cursor[16], q2[256];
+               MYSQL_RES * result3;
+               MYSQL_ROW row3;
+               word hop;
+               strcpy(chain_cursor, trust_id);
+               for(hop = 0; hop < 4; hop++)
+               {
+                  sprintf(q2, "SELECT new_trust_id FROM trust_changeid WHERE trust_id='%s' ORDER BY created DESC LIMIT 1", chain_cursor);
+                  if(db_query(q2)) break;
+                  result3 = db_store_result();
+                  row3 = mysql_fetch_row(result3);
+                  if(!row3 || !row3[0][0] || strstr(trust_id_chain, row3[0]))
+                  {
+                     if(result3) mysql_free_result(result3);
+                     break;
+                  }
+                  strcpy(chain_cursor, row3[0]);
+                  strcat(trust_id_chain, ",'");
+                  strcat(trust_id_chain, chain_cursor);
+                  strcat(trust_id_chain, "'");
+                  mysql_free_result(result3);
+               }
+            }
+
             if(status)
             {
                // Look for cancellation
@@ -1493,8 +1578,10 @@ static void report_train_summary(const word index, const time_t when, const word
 
             if(status)
             {
-               // Look for movements.     0            1               2                   3                  4  
-               sprintf(query, "SELECT loc_stanox, actual_timestamp, timetable_variation, planned_timestamp, flags from trust_movement where trust_id='%s' AND created > %ld AND created < %ld order by actual_timestamp, planned_timestamp, created", trust_id, when - 15*24*60*60, when + 15*24*60*60);
+               // Look for movements.     0            1               2                   3                  4
+               // `trust_id_chain` (docs/adr/0009, RLM repo) rather than plain `trust_id` - a
+               // movement reported after a Change of Identity arrives under the new id.
+               sprintf(query, "SELECT loc_stanox, actual_timestamp, timetable_variation, planned_timestamp, flags from trust_movement where trust_id in (%s) AND created > %ld AND created < %ld order by actual_timestamp, planned_timestamp, created", trust_id_chain, when - 15*24*60*60, when + 15*24*60*60);
                if(!db_query(query))
                {
                   result1 = db_store_result();

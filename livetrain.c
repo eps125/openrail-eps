@@ -177,10 +177,14 @@ static const char * const create_temp_table = "CREATE TEMPORARY TABLE train"
    "a_flags                         SMALLINT UNSIGNED, "
    "d_flags                         SMALLINT UNSIGNED, "
    "cancelled_here                  SMALLINT UNSIGNED, "
+   // docs/adr/0009 (RLM repo): set for a row that never actually ran, per a TRUST Change of
+   // Origin (every calling point before its new starting location) or a Change of Location (the
+   // original, superseded calling point only - the revised one is a separate, unstruck row).
+   "struck_out                      SMALLINT UNSIGNED, "
    "PRIMARY KEY(id)"
    ")";
 
-enum columns { id, act, record_identity, tiploc_code, tiploc_instance, arrival, departure, pass, public_arrival, public_departure, sort_time, next_day, splatform, line, path, engineering_allowance, pathing_allowance, performance_allowance, a_tplatform, d_tplatform, a_actual_timestamp, d_actual_timestamp,a_timetable_variation, d_timetable_variation, a_flags, d_flags, cancelled_here, MAX_COLUMN };
+enum columns { id, act, record_identity, tiploc_code, tiploc_instance, arrival, departure, pass, public_arrival, public_departure, sort_time, next_day, splatform, line, path, engineering_allowance, pathing_allowance, performance_allowance, a_tplatform, d_tplatform, a_actual_timestamp, d_actual_timestamp,a_timetable_variation, d_timetable_variation, a_flags, d_flags, cancelled_here, struck_out, MAX_COLUMN };
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1236,7 +1240,11 @@ static void train(void)
                while((row2 = mysql_fetch_row(result2)) && next_nm < MAX_NM)
                {
                   nmt[next_nm] = atol(row2[0]);
-                  sprintf(nm[next_nm++], "<tr class=\"small-table-other\"><td>%s</td><td>Change ID</td><td colspan=11>Old ID: %s  New ID: %s</td></tr>\n", time_text(atol(row2[0]), true), row2[1], row2[2]);
+                  // docs/adr/0009 (RLM repo), owner spec 2026-09-17: old ID struck through, new
+                  // ID shown plainly alongside it - this message row is the one place on this
+                  // page a TRUST id change is visible (the page's own <h2> title is the static
+                  // CIF schedule identity, not a TRUST id, so it's correctly left untouched).
+                  sprintf(nm[next_nm++], "<tr class=\"small-table-other\"><td>%s</td><td>Change ID</td><td colspan=11>Old ID: <s>%s</s>  New ID: <b>%s</b></td></tr>\n", time_text(atol(row2[0]), true), row2[1], row2[2]);
                }
                mysql_free_result(result2);
             } 
@@ -1284,7 +1292,71 @@ static void train(void)
                }
                if(result0) mysql_free_result(result0);
             }
-            
+
+            // Mark rows struck out by a Change of Origin (docs/adr/0009 in the RLM repo; owner
+            // spec 2026-09-17): the latest Change of Origin, if any, means every calling point
+            // before its new starting location was never actually run - struck through here, not
+            // silently dropped, so the originally-booked route stays visible. Wrapped in a derived
+            // table (MySQL forbids selecting straight from the table an UPDATE targets).
+            {
+               char origin_stanox[16], q2[256];
+               origin_stanox[0] = '\0';
+               sprintf(q2, "SELECT loc_stanox FROM trust_changeorigin WHERE trust_id='%s' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", trust_id, start_date - 15*24*60*60, start_date + 15*24*60*60);
+               if(!db_query(q2) && (result0 = db_store_result()) && (row0 = mysql_fetch_row(result0)) && row0[0])
+               {
+                  strcpy(origin_stanox, row0[0]);
+               }
+               if(result0) mysql_free_result(result0);
+               if(origin_stanox[0])
+               {
+                  sprintf(q2, "SELECT tiploc FROM corpus WHERE stanox = %s", origin_stanox);
+                  if(!db_query(q2) && (result0 = db_store_result()) && (row0 = mysql_fetch_row(result0)))
+                  {
+                     sprintf(query, "UPDATE train SET struck_out = 1 WHERE id < (SELECT m.id FROM (SELECT id FROM train WHERE tiploc_code = '%s' ORDER BY id LIMIT 1) m)", row0[0]);
+                     db_query(query);
+                  }
+                  if(result0) mysql_free_result(result0);
+               }
+            }
+
+            // Mark/insert rows for each Change of Location (docs/adr/0009 in the RLM repo; owner
+            // spec 2026-09-17): the original calling point is struck through, and the revised one
+            // is added as a new row alongside it (same WTT/public times - the location moved, not
+            // the working's timing).
+            sprintf(query, "SELECT original_stanox, stanox FROM trust_changelocation WHERE trust_id='%s' AND created > %ld AND created < %ld ORDER BY created", trust_id, start_date - 15*24*60*60, start_date + 15*24*60*60);
+            if(!db_query(query))
+            {
+               result1 = db_store_result();
+               while((row1 = mysql_fetch_row(result1)))
+               {
+                  char original_tiploc[16], revised_tiploc[16], q2[256];
+                  original_tiploc[0] = revised_tiploc[0] = '\0';
+
+                  sprintf(q2, "SELECT tiploc FROM corpus WHERE stanox = %s", row1[0]);
+                  if(!db_query(q2) && (result0 = db_store_result()) && (row0 = mysql_fetch_row(result0)))
+                  {
+                     strcpy(original_tiploc, row0[0]);
+                  }
+                  if(result0) mysql_free_result(result0);
+
+                  sprintf(q2, "SELECT tiploc FROM corpus WHERE stanox = %s", row1[1]);
+                  if(!db_query(q2) && (result0 = db_store_result()) && (row0 = mysql_fetch_row(result0)))
+                  {
+                     strcpy(revised_tiploc, row0[0]);
+                  }
+                  if(result0) mysql_free_result(result0);
+
+                  if(original_tiploc[0] && revised_tiploc[0])
+                  {
+                     sprintf(query, "UPDATE train SET struck_out = 1 WHERE tiploc_code = '%s'", original_tiploc);
+                     db_query(query);
+                     sprintf(query, "INSERT INTO train (activities, record_identity, tiploc_code, tiploc_instance, arrival, departure, pass, public_arrival, public_departure, sort_time, next_day, splatform, line, path, engineering_allowance, pathing_allowance, performance_allowance) SELECT activities, record_identity, '%s', tiploc_instance, arrival, departure, pass, public_arrival, public_departure, sort_time, next_day, splatform, line, path, engineering_allowance, pathing_allowance, performance_allowance FROM train WHERE tiploc_code = '%s' ORDER BY id LIMIT 1", revised_tiploc, original_tiploc);
+                     db_query(query);
+                  }
+               }
+               mysql_free_result(result1);
+            }
+
             // Now insert the train movement data
             sprintf(query, "SELECT platform, loc_stanox, actual_timestamp, gbtt_timestamp, planned_timestamp, timetable_variation, flags FROM trust_movement WHERE trust_id = '%s' AND created > %ld AND created < %ld ORDER BY actual_timestamp", trust_id, now - 15*24*60*60, now + 15*24*60*60);
 
@@ -1428,7 +1500,12 @@ static void show_running(const time_t when, const word activated)
       row_id = atoi(row0[id]);
       cape_here = (row0[cancelled_here] && atoi(row0[cancelled_here]));
       if(cape_here) cancelled = true;
-      printf("<tr class=\"small-table\">");
+      // docs/adr/0009 (RLM repo), owner spec 2026-09-17: a row struck out by a Change of Origin
+      // or superseded by a Change of Location's revised row is shown struck through, not hidden -
+      // `text-decoration` on the row draws through every cell's text without needing a class per
+      // cell.
+      printf("<tr class=\"small-table\"%s>",
+             (row0[struck_out] && atoi(row0[struck_out])) ? " style=\"text-decoration:line-through\"" : "");
       printf("<td>%s", show_tiploc_link(row0[tiploc_code], true, "sum", when));
       if(row0[tiploc_instance] && row0[tiploc_instance][0] && row0[tiploc_instance][0] != ' ')
       {
