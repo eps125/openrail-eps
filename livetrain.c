@@ -633,7 +633,63 @@ static void train(void)
 
          strcpy(headcode, row0[8]);
          if(!headcode[0]) strcpy(headcode, row0[34]);
-         printf("<h2>Service %u (%s) %s %s</h2>\n", schedule_id, show_spaces(row0[3]), headcode, train);
+
+         // Owner correction 2026-09-17: a TRUST Change of Identity encodes a genuine headcode
+         // change within the new trust_id itself - confirmed against a real example ("426C02C417"
+         // -> "420C02C417" is headcode 6C02 -> 0C02). trust_id format: 2-digit start hour + this
+         // 4-character headcode + 2-character TOC + 2-digit day of month - the same format this
+         // file already relies on elsewhere for the day-of-month substring (`substring(trust_id
+         // FROM 9)`, used just below and in liverail.c). Shown here, on the page's own title, as
+         // struck-through old headcode + new headcode replacing it - the message log below stays
+         // plain text (owner correction: no strikethrough there).
+         {
+            char header_headcode[64], q2[512], trust_id_lookup[16], final_trust_id[16], cursor4[16];
+            MYSQL_RES * result4;
+            MYSQL_ROW row4;
+            struct tm broken4 = *gmtime(&when);
+            byte dom4 = broken4.tm_mday;
+            word hop4;
+            strcpy(header_headcode, headcode);
+            trust_id_lookup[0] = '\0';
+
+            sprintf(q2, "SELECT trust_id FROM trust_activation WHERE cif_schedule_id = %u AND substring(trust_id FROM 9) = '%02d' AND created > %ld AND created < %ld ORDER BY created DESC LIMIT 1", schedule_id, dom4, when - 15*24*60*60, when + 15*24*60*60);
+            if(!db_query(q2) && (result4 = db_store_result()))
+            {
+               if((row4 = mysql_fetch_row(result4)) && row4[0][0]) strcpy(trust_id_lookup, row4[0]);
+               mysql_free_result(result4);
+            }
+
+            if(trust_id_lookup[0])
+            {
+               strcpy(cursor4, trust_id_lookup);
+               strcpy(final_trust_id, trust_id_lookup);
+               for(hop4 = 0; hop4 < 4; hop4++)
+               {
+                  sprintf(q2, "SELECT new_trust_id FROM trust_changeid WHERE trust_id='%s' ORDER BY created DESC LIMIT 1", cursor4);
+                  if(db_query(q2)) break;
+                  result4 = db_store_result();
+                  row4 = mysql_fetch_row(result4);
+                  if(!row4 || !row4[0][0])
+                  {
+                     if(result4) mysql_free_result(result4);
+                     break;
+                  }
+                  strcpy(cursor4, row4[0]);
+                  strcpy(final_trust_id, cursor4);
+                  mysql_free_result(result4);
+               }
+
+               if(strlen(trust_id_lookup) == 10 && strlen(final_trust_id) == 10 && strcmp(trust_id_lookup, final_trust_id))
+               {
+                  char old_hc[5], new_hc[5];
+                  strncpy(old_hc, trust_id_lookup + 2, 4);  old_hc[4] = '\0';
+                  strncpy(new_hc, final_trust_id + 2, 4);   new_hc[4] = '\0';
+                  if(strcmp(old_hc, new_hc)) sprintf(header_headcode, "<s>%s</s> %s", old_hc, new_hc);
+               }
+            }
+
+            printf("<h2>Service %u (%s) %s %s</h2>\n", schedule_id, show_spaces(row0[3]), header_headcode, train);
+         }
          strcpy(uid, row0[3]);
 
          // DATE WARNING
@@ -1240,11 +1296,11 @@ static void train(void)
                while((row2 = mysql_fetch_row(result2)) && next_nm < MAX_NM)
                {
                   nmt[next_nm] = atol(row2[0]);
-                  // docs/adr/0009 (RLM repo), owner spec 2026-09-17: old ID struck through, new
-                  // ID shown plainly alongside it - this message row is the one place on this
-                  // page a TRUST id change is visible (the page's own <h2> title is the static
-                  // CIF schedule identity, not a TRUST id, so it's correctly left untouched).
-                  sprintf(nm[next_nm++], "<tr class=\"small-table-other\"><td>%s</td><td>Change ID</td><td colspan=11>Old ID: <s>%s</s>  New ID: <b>%s</b></td></tr>\n", time_text(atol(row2[0]), true), row2[1], row2[2]);
+                  // Owner correction 2026-09-17: no strikethrough in this message log - plain text,
+                  // same as every other row here. The struck-through/replaced headcode this Change
+                  // of Identity actually represents is shown on the page's own <h2> title instead
+                  // (derived from the TRUST id itself, see below).
+                  sprintf(nm[next_nm++], "<tr class=\"small-table-other\"><td>%s</td><td>Change ID</td><td colspan=11>Old ID: %s  New ID: %s</td></tr>\n", time_text(atol(row2[0]), true), row2[1], row2[2]);
                }
                mysql_free_result(result2);
             } 

@@ -1526,15 +1526,15 @@ static void report_train_summary(const word index, const time_t when, const word
             // the small chain of ids this run has been known by so the movement lookup below finds
             // them regardless of which one they were actually reported under. Bounded to 4 hops -
             // guards a same-id cycle in production data, not a believed real chain length.
-            char trust_id_chain[128];
+            char trust_id_chain[128], chain_cursor[16];
             sprintf(trust_id_chain, "'%s'", trust_id);
+            strcpy(chain_cursor, trust_id);
             if(status)
             {
-               char chain_cursor[16], q2[256];
+               char q2[256];
                MYSQL_RES * result3;
                MYSQL_ROW row3;
                word hop;
-               strcpy(chain_cursor, trust_id);
                for(hop = 0; hop < 4; hop++)
                {
                   sprintf(q2, "SELECT new_trust_id FROM trust_changeid WHERE trust_id='%s' ORDER BY created DESC LIMIT 1", chain_cursor);
@@ -1552,6 +1552,22 @@ static void report_train_summary(const word index, const time_t when, const word
                   strcat(trust_id_chain, "'");
                   mysql_free_result(result3);
                }
+            }
+
+            // docs/adr/0010 (RLM repo), owner correction 2026-09-17: a Change of Identity encodes a
+            // genuine headcode change within the new trust_id itself (confirmed against a real
+            // example: "426C02C417" -> "420C02C417" is headcode 6C02 -> 0C02; trust_id format is
+            // 2-digit start hour + this 4-character headcode + 2-character TOC + 2-digit day of
+            // month, the same format already relied on for the day-of-month substring above).
+            // Reflected here on the board (no strikethrough, unlike livetrain.c's detail page) -
+            // `chain_cursor` is the final id in the chain built above, unchanged from `trust_id`
+            // when there's been no Change of Identity at all.
+            if(strlen(trust_id) == 10 && strlen(chain_cursor) == 10 && strcmp(trust_id, chain_cursor))
+            {
+               char old_hc[5], new_hc[5];
+               strncpy(old_hc, trust_id + 2, 4);     old_hc[4] = '\0';
+               strncpy(new_hc, chain_cursor + 2, 4); new_hc[4] = '\0';
+               if(strcmp(old_hc, new_hc)) strcpy(headcode, new_hc);
             }
 
             if(status)
