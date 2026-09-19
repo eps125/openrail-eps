@@ -901,6 +901,19 @@ static void process_trust_0003(const char * string, const jsmntok_t * tokens, co
    jsmn_find_extract_token(string, tokens, index, "correction_ind", zs, sizeof(zs));
    if(zs[0] == 't') flags += 0x0080;
 
+   // Bits 8-10:  original_data_source (a header field, not body - reachable via the same
+   // jsmn object index used above for train_id etc., same as msg_type already is).  Which
+   // system originated this report - in particular "GPS", used by trains reporting position
+   // via GPS in areas with no train-describer/track-circuit coverage.  0 (unset) means the
+   // field was absent or unrecognised - never guessed.
+   jsmn_find_extract_token(string, tokens, index, "original_data_source", zs, sizeof(zs));
+   if     (!strcmp(zs, "SDR"))      flags += 0x0100; // 1 << 8
+   else if(!strcmp(zs, "SMART"))    flags += 0x0200; // 2 << 8
+   else if(!strcmp(zs, "TOPS"))     flags += 0x0300; // 3 << 8
+   else if(!strcmp(zs, "TRUST DA")) flags += 0x0400; // 4 << 8
+   else if(!strcmp(zs, "GPS"))      flags += 0x0500; // 5 << 8
+   else if(zs[0]) _log(MINOR, "TRUST movement:  Unexpected original_data_source field \"%s\".", zs);
+
    sprintf(zs1, "%d", flags);
    strcat(query, zs1);
    
