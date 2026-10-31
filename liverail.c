@@ -2185,7 +2185,7 @@ static void train(void)
 
          printf("<tr><td>TOC Headcode</td><td>%s</td><td></td></tr>\n", row0[10]);
          // "Not used" printf("<tr><td>CIF course indicator</td><td>%s</td>", row0[13]);
-         printf("<tr><td>Train service code</td><td><a class=\"linkbutton\" href=\"/rail/query/K/%s/%s\">%s</a></td><td></td></tr>\n", row0[11], tsc_date_parm(when), row0[11]);
+         printf("<tr><td>Train service code</td><td><a class=\"linkbutton-summ\" href=\"/rail/query/K/%s/%s\">%s</a></td><td></td></tr>\n", row0[11], tsc_date_parm(when), row0[11]);
          printf("<tr><td>Business Sector</td><td>%s</td><td></td></tr>\n", row0[12]);
 
          printf("<tr><td>Power type</td><td>%s</td><td>\n", row0[13]);
@@ -2452,7 +2452,7 @@ static void train(void)
 
             printf("<tr><td>TOC Headcode</td><td>%s</td><td></td></tr>\n", row0[16]);
 
-            printf("<tr><td>Train service code</td><td><a class=\"linkbutton\" href=\"/rail/query/K/%s/%s\">%s</a></td><td></td></tr>\n", row0[5], tsc_date_parm(when), row0[5]);
+            printf("<tr><td>Train service code</td><td><a class=\"linkbutton-summ\" href=\"/rail/query/K/%s/%s\">%s</a></td><td></td></tr>\n", row0[5], tsc_date_parm(when), row0[5]);
 
             printf("<tr><td>Power type</td><td>%s</td><td>\n", row0[6]);
             sprintf(zs, "%-3s", row0[6]);
