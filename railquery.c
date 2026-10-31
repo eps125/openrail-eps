@@ -54,6 +54,8 @@ static void report_g(void);
 static void report_h(void);
 static void report_i(void);
 static void report_j(void);
+static void report_k(void);
+static void display_nav_bar(void);
 static char * location_name(const char * const tiploc);
 static char * location_name_stanox(const dword stanox);
 static char * describe_schedule(const dword id);
@@ -228,11 +230,18 @@ int main()
       break;
 
    case 'I':
+      display_nav_bar();
       report_i();
       break;
 
    case 'J':
+      display_nav_bar();
       report_j();
+      break;
+
+   case 'K':
+      display_nav_bar();
+      report_k();
       break;
 
    case 'Z':
@@ -334,12 +343,19 @@ static void display_menu(void)
           "<br><button class=\"cp-button\" onclick=\"I_onclick();\">Report</button>\n"
           "</td></tr>\n"
 
-          "<tr valign=\"top\"><td class=\"control-panel-row\" colspan=\"7\">"
+          "<tr valign=\"top\"><td class=\"control-panel-row\" colspan=\"3\">"
           "<h4>[J]VSTP schedules</h4>\n"
           "On date <input type=\"text\" id=\"J-d\" size=\"8\" maxlength=\"8\" placeholder=\"dd/mm/yy\" value=\"\" onkeydown=\"if(event.keyCode == 13) J_onclick();\">&nbsp; &nbsp;\n"
           "and / or ATOC code <input type=\"text\" id=\"J-a\" size=\"2\" maxlength=\"2\" value=\"\" onkeydown=\"if(event.keyCode == 13) J_onclick();\">&nbsp; &nbsp;\n"
           "<br>Leave both blank for the most recent VSTPs.\n"
           "<br><button class=\"cp-button\" onclick=\"J_onclick();\">Report</button>\n"
+
+          "</td><td width=\"5%%\">&nbsp;</td><td class=\"control-panel-row\" colspan=\"3\">\n"
+          "<h4>[K]Schedules by train service code</h4>\n"
+          "Train service code <input type=\"text\" id=\"K-t\" size=\"8\" maxlength=\"8\" value=\"\" onkeydown=\"if(event.keyCode == 13) K_onclick();\">&nbsp; &nbsp;\n"
+          "on date <input type=\"text\" id=\"K-d\" size=\"8\" maxlength=\"8\" placeholder=\"dd/mm/yy\" value=\"\" onkeydown=\"if(event.keyCode == 13) K_onclick();\">\n"
+          "<br>Leave the date blank for all dates.\n"
+          "<br><button class=\"cp-button\" onclick=\"K_onclick();\">Search</button>\n"
           "</td></tr>\n"
 
           "<tr><td colspan=\"7\" class=\"control-panel-row\">"
@@ -373,6 +389,7 @@ static void display_menu(void)
 "<p>Report [H] shows schedules that meet all the specified paramters.  This is aimed at researching the useage of a particular route.</p>"
 "<p>Report [I] shows the unit / carriage allocations recorded for a vehicle from the passenger train consist feed.  Click a row to open its schedule.</p>"
 "<p>Report [J] lists VSTP (Very Short Term Planning) schedules, optionally narrowed to a date and / or an ATOC code.</p>"
+"<p>Report [K] lists the schedules with a given train service code (TSC), optionally only those running on a date.  It can also be run from the box at the top of the report pages, or by clicking the train service code on a train's page.</p>"
 "<p>The Open Rail database contains live running data for the past three years and future schedule information up to the limit of Network Rail's published information.</p>"
           );
    printf("</div>\n");
@@ -1773,6 +1790,86 @@ static void report_j(void)
    }
    report_be();
    printf("<p>Most recent 300 shown (newest first).</p>\n");
+}
+
+static void report_k(void)
+{
+   // [1] Train service code
+   // [2] date  dd-mm-yy (optional) - only schedules running on that day
+
+   char query[1536], q1[512], safe[32];
+   time_t when = parameters[2][0] ? parse_date(parameters[2]) : 0;
+
+   if(!parameters[1][0])
+   {
+      printf("<h4>Enter a train service code.</h4>\n");
+      return;
+   }
+   // A TSC is 8 digits, anything longer can't match.
+   db_real_escape_string(safe, parameters[1], strlen(parameters[1]) > 8 ? 8 : strlen(parameters[1]));
+
+   sprintf(query,
+      "SELECT train_status, schedule_start_date, schedule_end_date, signalling_id, CIF_train_uid, "
+      "CIF_stp_indicator, update_id, id, runs_mo, runs_tu, runs_we, runs_th, runs_fr, runs_sa, runs_su, "
+      "deleted, created, deduced_headcode, deduced_headcode_status "
+      "FROM cif_schedules WHERE CIF_train_service_code = '%s'", safe);
+
+   if(when)
+   {
+      static const char * const dow[7] = {"runs_su","runs_mo","runs_tu","runs_we","runs_th","runs_fr","runs_sa"};
+      struct tm * b = gmtime(&when);
+      sprintf(q1, " AND schedule_start_date <= %ld AND schedule_end_date >= %ld AND deleted > %ld AND %s"
+                  " ORDER BY signalling_id, CIF_train_uid, created",
+              when + 12*60*60, when - 12*60*60, when - 12*60*60, dow[b->tm_wday % 7]);
+   }
+   else
+   {
+      sprintf(q1, " ORDER BY schedule_start_date DESC, created DESC LIMIT %d", MAX_SHOWN);
+   }
+   strcat(query, q1);
+
+   printf("<h3>Schedules with train service code %s%s%s</h3>\n",
+          safe, when ? " running on " : "", when ? date_text(when, 0) : "");
+
+   if(db_query(query))
+   {
+      printf("<h4>Query failed.</h4>\n");
+      return;
+   }
+   report_be();
+   if(!when) printf("<p>Most recent %d shown (latest start date first).  Enter a date to see just the schedules running that day.</p>\n", MAX_SHOWN);
+}
+
+static void display_nav_bar(void)
+{
+   // The live trains control panel (as at the top of liverail / livetrain) plus a quick
+   // train service code search, for the report pages.
+   // On a [K] report pre-fill the TSC box.  The date comes in as dd-mm-yy.
+   char tsc[16] = "", tsc_date[16] = "";
+   if(mode == 'K')
+   {
+      word i;
+      strncpy(tsc, parameters[1], 8); tsc[8] = '\0';
+      strncpy(tsc_date, parameters[2], 8); tsc_date[8] = '\0';
+      for(i = 0; tsc_date[i]; i++) if(tsc_date[i] == '-') tsc_date[i] = '/';
+   }
+
+   printf("<table><tr><td class=\"control-panel-row\">\n");
+   printf("&nbsp;Show trains at <input type=\"text\" class=\"control-panel-box\" id=\"search_loc\" size=\"26\" maxlength=\"64\" placeholder=\"Location name / TIPLOC / 3-alpha\" value=\"\" onkeydown=\"if(event.keyCode == 13) search_onclick();\">\n");
+   printf("on <input type=\"text\" class=\"control-panel-box\" id=\"search_date\" size=\"8\" maxlength=\"8\" placeholder=\"dd/mm/yy\" value=\"\" onkeydown=\"if(event.keyCode == 13) search_onclick();\">\n");
+   printf(" <button class=\"cp-button\" onclick=\"search_onclick();\">All</button>\n");
+   printf(" <button class=\"cp-button\" onclick=\"freight_onclick();\">Freight</button>\n");
+   printf(" <button class=\"cp-button\" onclick=\"summary_onclick();\">Summary</button>\n");
+   printf(" <button class=\"cp-button\" onclick=\"depart_onclick();\">Departures</button>\n");
+
+   printf("&nbsp;</td><td width=\"4%%\"></td><td class=\"control-panel-row\">&nbsp;&nbsp;<button class=\"cp-button\" onclick=\"menu_onclick();\">Advanced Search</button>");
+   printf("&nbsp;&nbsp;<button class=\"cp-button\" onclick=\"status_onclick();\">Status</button>&nbsp;\n");
+
+   printf("&nbsp;</td><td width=\"4%%\"></td><td class=\"control-panel-row\">&nbsp;Train service code <input type=\"text\" class=\"control-panel-box\" id=\"K-t\" size=\"8\" maxlength=\"8\" value=\"%s\" onkeydown=\"if(event.keyCode == 13) K_onclick();\">\n", tsc);
+   printf("on <input type=\"text\" class=\"control-panel-box\" id=\"K-d\" size=\"8\" maxlength=\"8\" placeholder=\"dd/mm/yy\" value=\"%s\" onkeydown=\"if(event.keyCode == 13) K_onclick();\">\n", tsc_date);
+   printf(" <button class=\"cp-button\" onclick=\"K_onclick();\">Search</button>&nbsp;\n");
+
+   printf("</td></tr></table>\n");
 }
 
 static char * location_name(const char * const tiploc)

@@ -148,6 +148,19 @@ function J_onclick()
    window.location = result;
 }
 
+function K_onclick()
+{
+   result = url_base + 'K/' +
+      document.getElementById("K-t").value + '/' +
+      document.getElementById("K-d").value.replace("/", "-").replace("/", "-");
+   window.location = result;
+}
+
+function status_onclick()
+{
+   window.location = liverail_url_base + "status";
+}
+
 function startup()
 {
 }

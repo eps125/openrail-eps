@@ -83,6 +83,13 @@ function as_rq_onclick()
    window.open(query_url_base, '_blank');
 }
 
+function tsc_onclick()
+{
+   ar_off();
+   var result = query_url_base + 'K/' + document.getElementById("tsc_search").value;
+   window.location = result;
+}
+
 function status_onclick()
 {
    ar_off();

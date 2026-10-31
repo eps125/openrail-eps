@@ -43,6 +43,7 @@
 #define TEMP_TABLE 1
 
 static void display_control_panel(const char * const location, const time_t when);
+static char * tsc_date_parm(const time_t when);
 static void display_allocations(const char * const uid, const time_t when);
 static char * show_date(const time_t time, const byte local);
 static void train(void);
@@ -393,12 +394,28 @@ static void display_control_panel(const char * const location, const time_t when
 
    printf("&nbsp;</td><td width=\"4%%\"></td><td class=\"control-panel-row\">&nbsp;&nbsp;<button id=\"as_rq\" class=\"cp-button\" onclick=\"as_rq_onclick();\">Advanced Search</button>");
    printf("&nbsp;&nbsp;<button id=\"status\" class=\"cp-button\" onclick=\"status_onclick();\">Status</button>&nbsp;\n");
+   printf("&nbsp;&nbsp;TSC <input type=\"text\" class=\"control-panel-box\" id=\"tsc_search\" size=\"8\" maxlength=\"8\" placeholder=\"Svc code\" value=\"\" onkeydown=\"if(event.keyCode == 13) tsc_onclick(); else ar_off();\">");
+   printf(" <button class=\"cp-button\" onclick=\"tsc_onclick();\">Find</button>&nbsp;\n");
 
    printf("&nbsp;</td><td width=\"4%%\"></td><td class=\"control-panel-row\">&nbsp;Auto-refresh&nbsp;<input type=\"checkbox\" id=\"ar\" onclick=\"ar_onclick();\"%s>&nbsp;\n", refresh?" checked":"");
    
    printf("</td><td id=\"progress\" class=\"control-panel-row\" width=\"1%%\" valign=\"top\">&nbsp;");
 
    printf("</td></tr></table>\n");
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+static char * tsc_date_parm(const time_t when)
+{
+   // Date part of a railquery [K] (schedules by train service code) link, dd-mm-yy, or empty for all dates.
+   static char result[16];
+   result[0] = '\0';
+   if(when)
+   {
+      struct tm * b = gmtime(&when);
+      sprintf(result, "%02d-%02d-%02d", b->tm_mday, b->tm_mon + 1, b->tm_year % 100);
+   }
+   return result;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -885,7 +902,7 @@ static void train(void)
 
          printf("<tr><td>TOC Headcode</td><td>%s</td><td></td></tr>\n", row0[10]);
          // "Not used" printf("<tr><td>CIF course indicator</td><td>%s</td>", row0[13]);
-         printf("<tr><td>Train service code</td><td>%s</td><td></td></tr>\n", row0[11]);
+         printf("<tr><td>Train service code</td><td><a class=\"linkbutton\" href=\"/rail/query/K/%s/%s\">%s</a></td><td></td></tr>\n", row0[11], tsc_date_parm(when), row0[11]);
          printf("<tr><td>Business Sector</td><td>%s</td><td></td></tr>\n", row0[12]);
 
          printf("<tr><td>Power type</td><td>%s</td><td>\n", row0[13]);
@@ -1125,7 +1142,7 @@ static void train(void)
 
             if(strcmp(prev_tsc, row0[5]))
             {
-               printf("<tr><td>Train service code</td><td>%s</td><td></td></tr>\n", row0[5]);
+               printf("<tr><td>Train service code</td><td><a class=\"linkbutton\" href=\"/rail/query/K/%s/%s\">%s</a></td><td></td></tr>\n", row0[5], tsc_date_parm(when), row0[5]);
                strcpy(prev_tsc, row0[5]);
             }
 

@@ -48,7 +48,7 @@
 #else
 #define BUILD RELEASE_BUILD
 #endif
-#define NEW_VERSION 7
+#define NEW_VERSION 8
 
 static word table_exists(const char * const table_like);
 
@@ -181,6 +181,17 @@ word database_upgrade(const word caller)
          {
             if((result = db_query("ALTER TABLE updates_processed ADD COLUMN type tinyint NOT NULL DEFAULT 0"))) return result;
             _log(GENERAL, "Upgraded database table \"updates_processed\".");
+         }
+      }
+
+      // Upgrade to 8
+      if(old_version < 8)
+      {
+         if(table_exists("cif_schedules"))
+         {
+            // For railquery report [K], schedules by train service code.
+            if((result = db_query("ALTER TABLE cif_schedules ADD INDEX IF NOT EXISTS CIF_train_service_code (CIF_train_service_code)"))) return result;
+            _log(GENERAL, "Upgraded database table \"cif_schedules\".");
          }
       }
 
@@ -329,7 +340,7 @@ word database_upgrade(const word caller)
 "id                            INT UNSIGNED NOT NULL AUTO_INCREMENT, "
 "deduced_headcode              CHAR(4) NOT NULL DEFAULT '', "
 "deduced_headcode_status       CHAR(1) NOT NULL DEFAULT '', "
-"PRIMARY KEY (id), INDEX(schedule_end_date), INDEX(schedule_start_date), INDEX(CIF_train_uid), INDEX(CIF_stp_indicator) "
+"PRIMARY KEY (id), INDEX(schedule_end_date), INDEX(schedule_start_date), INDEX(CIF_train_uid), INDEX(CIF_stp_indicator), INDEX(CIF_train_service_code) "
 ") ENGINE = InnoDB"
                ))) return result;
       _log(GENERAL, "Created database table \"cif_schedules\".");
