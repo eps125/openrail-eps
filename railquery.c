@@ -437,6 +437,9 @@ static void report_be(void)
 {
    char query[1024];
       db_result[0] = db_store_result();
+      // A caller may append origin name, dep, public dep, destination name, arr, public arr
+      // (columns 19-24) to save two queries and two name lookups per row.
+      word have_ends = (mysql_num_fields(db_result[0]) >= 25);
       if(text_mode)
       {
          printf("<pre>Activated                 TRUST ID       Schedule ID\n");
@@ -500,6 +503,25 @@ static void report_be(void)
             default:  printf("<td>%s</td>", db_row[0][5]);  break;
             }
                
+            if(have_ends)
+            {
+               // From / To already fetched by the main query (columns 19-24).
+               printf("<td>");
+               if(db_row[0][19])
+               {
+                  printf("%s %s", db_row[0][19], show_time(db_row[0][20]));
+                  if(db_row[0][21][0]) printf("(%s)", show_time(db_row[0][21]));
+               }
+               printf("</td><td>");
+               if(db_row[0][22])
+               {
+                  printf("%s %s", db_row[0][22], show_time(db_row[0][23]));
+                  if(db_row[0][24][0]) printf("(%s)", show_time(db_row[0][24]));
+               }
+               printf("</td>");
+            }
+            else
+            {
             // From
             sprintf(query, "SELECT tiploc_code, departure, public_departure FROM cif_schedule_locations where cif_schedule_id = %u AND record_identity = 'LO'", id);
             printf("<td>");
@@ -531,6 +553,7 @@ static void report_be(void)
                   mysql_free_result(db_result[1]);
                }
                printf("</td>");
+            }
 
                // Days
                printf("<td>");
@@ -1797,7 +1820,7 @@ static void report_k(void)
    // [1] Train service code
    // [2] date  dd-mm-yy (optional) - only schedules running on that day
 
-   char query[1536], q1[512], safe[32];
+   char query[2560], q1[512], safe[32];
    time_t when = parameters[2][0] ? parse_date(parameters[2]) : 0;
 
    if(!parameters[1][0])
@@ -1808,23 +1831,30 @@ static void report_k(void)
    // A TSC is 8 digits, anything longer can't match.
    db_real_escape_string(safe, parameters[1], strlen(parameters[1]) > 8 ? 8 : strlen(parameters[1]));
 
+   // Origin and destination are joined in here (columns 19-24) rather than looked up row by
+   // row in report_be(), which made a 500 row result take 2000 more round trips.
    sprintf(query,
-      "SELECT train_status, schedule_start_date, schedule_end_date, signalling_id, CIF_train_uid, "
-      "CIF_stp_indicator, update_id, id, runs_mo, runs_tu, runs_we, runs_th, runs_fr, runs_sa, runs_su, "
-      "deleted, created, deduced_headcode, deduced_headcode_status "
-      "FROM cif_schedules WHERE CIF_train_service_code = '%s'", safe);
+      "SELECT s.train_status, s.schedule_start_date, s.schedule_end_date, s.signalling_id, s.CIF_train_uid, "
+      "s.CIF_stp_indicator, s.update_id, s.id, s.runs_mo, s.runs_tu, s.runs_we, s.runs_th, s.runs_fr, s.runs_sa, s.runs_su, "
+      "s.deleted, s.created, s.deduced_headcode, s.deduced_headcode_status, "
+      "COALESCE((SELECT fn FROM corpus WHERE tiploc = lo.tiploc_code AND fn != '' LIMIT 1), lo.tiploc_code), lo.departure, lo.public_departure, "
+      "COALESCE((SELECT fn FROM corpus WHERE tiploc = lt.tiploc_code AND fn != '' LIMIT 1), lt.tiploc_code), lt.arrival, lt.public_arrival "
+      "FROM cif_schedules s "
+      "LEFT JOIN cif_schedule_locations lo ON lo.cif_schedule_id = s.id AND lo.record_identity = 'LO' "
+      "LEFT JOIN cif_schedule_locations lt ON lt.cif_schedule_id = s.id AND lt.record_identity = 'LT' "
+      "WHERE s.CIF_train_service_code = '%s'", safe);
 
    if(when)
    {
       static const char * const dow[7] = {"runs_su","runs_mo","runs_tu","runs_we","runs_th","runs_fr","runs_sa"};
       struct tm * b = gmtime(&when);
-      sprintf(q1, " AND schedule_start_date <= %ld AND schedule_end_date >= %ld AND deleted > %ld AND %s"
-                  " ORDER BY signalling_id, CIF_train_uid, created",
+      sprintf(q1, " AND s.schedule_start_date <= %ld AND s.schedule_end_date >= %ld AND s.deleted > %ld AND s.%s"
+                  " ORDER BY s.signalling_id, s.CIF_train_uid, s.created",
               when + 12*60*60, when - 12*60*60, when - 12*60*60, dow[b->tm_wday % 7]);
    }
    else
    {
-      sprintf(q1, " ORDER BY schedule_start_date DESC, created DESC LIMIT %d", MAX_SHOWN);
+      sprintf(q1, " ORDER BY s.schedule_start_date DESC, s.created DESC LIMIT %d", MAX_SHOWN);
    }
    strcat(query, q1);
 
