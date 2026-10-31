@@ -26,6 +26,9 @@ COPY . /src
 # libmariadb-dev-compat provides both. Add a defensive fallback in case the
 # compat include symlink is ever missing.
 RUN if [ ! -e /usr/include/mysql/mysql.h ]; then ln -s /usr/include/mariadb /usr/include/mysql; fi
+# Cache-busting tag for the /auxy/ CSS and JS links (see misc.h): changes whenever any of them do.
+RUN printf '#define ASSET_VERSION "%s"\n' \
+        "$(cat liverail.css liverail.js livesig.css livesig.js railquery.js | md5sum | cut -c1-10)" > asset_version.h
 RUN make all
 
 # Pre-process the livesig track diagrams and collect the static web assets,

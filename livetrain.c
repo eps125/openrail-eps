@@ -304,8 +304,8 @@ int main()
    printf("<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\" xml:lang=\"en\">\n");
    printf("<head>\n");
    printf("<title>%s %s</title>\n", NAME, BUILD);
-   printf("<link rel=\"stylesheet\" type=\"text/css\" href=\"/auxy/liverail.css\">\n");
-   printf("<script type=\"text/javascript\" src=\"/auxy/liverail.js\"></script>\n");
+   printf("<link rel=\"stylesheet\" type=\"text/css\" href=\"/auxy/liverail.css?v=" ASSET_VERSION "\">\n");
+   printf("<script type=\"text/javascript\" src=\"/auxy/liverail.js?v=" ASSET_VERSION "\"></script>\n");
    printf("</head>\n");
    printf("<body onload=\"startup();\">\n");
    

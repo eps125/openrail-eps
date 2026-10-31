@@ -135,8 +135,8 @@ int main()
    printf("<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\" xml:lang=\"en\">");
    printf("<head>");
    printf("<title>%s %s</title>", NAME, BUILD);
-   printf("<link rel=\"stylesheet\" type=\"text/css\" href=\"/auxy/liverail.css\">");
-   //printf("<script type=\"text/javascript\" src=\"/auxy/liverail.js\"></script>");
+   printf("<link rel=\"stylesheet\" type=\"text/css\" href=\"/auxy/liverail.css?v=" ASSET_VERSION "\">");
+   //printf("<script type=\"text/javascript\" src=\"/auxy/liverail.js?v=" ASSET_VERSION "\"></script>");
    printf("</head>");
    // printf("<body onload=\"startup();\">\n");
    printf("<body>\n");

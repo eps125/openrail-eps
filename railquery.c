@@ -185,8 +185,8 @@ int main()
    printf("<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\" xml:lang=\"en\">\n");
    printf("<head>\n");
    printf("<title>%s %s</title>\n", DISPLAY_NAME, BUILD);
-   printf("<link rel=\"stylesheet\" type=\"text/css\" href=\"/auxy/liverail.css\">\n");
-   printf("<script type=\"text/javascript\" src=\"/auxy/railquery.js\"></script>\n");
+   printf("<link rel=\"stylesheet\" type=\"text/css\" href=\"/auxy/liverail.css?v=" ASSET_VERSION "\">\n");
+   printf("<script type=\"text/javascript\" src=\"/auxy/railquery.js?v=" ASSET_VERSION "\"></script>\n");
    printf("</head>\n");
    printf("<body style=\"font-family: arial,sans-serif;\" onload=\"startup();\">\n");
 

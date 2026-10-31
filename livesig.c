@@ -181,10 +181,10 @@ static void page(void)
    printf("<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\" xml:lang=\"en\">\n");
    printf("<head>\n");
    printf("<title>%s %s</title>\n", NAME, BUILD);
-   printf("<link rel=\"stylesheet\" type=\"text/css\" href=\"/auxy/livesig.css\">\n");
+   printf("<link rel=\"stylesheet\" type=\"text/css\" href=\"/auxy/livesig.css?v=" ASSET_VERSION "\">\n");
    printf("</head>\n");
    printf("<body style=\"font-family: arial,sans-serif; background:#eeeeee\" onload=\"startup();\">\n");
-   printf("<script type=\"text/javascript\" src=\"/auxy/livesig.js\"></script>\n");
+   printf("<script type=\"text/javascript\" src=\"/auxy/livesig.js?v=" ASSET_VERSION "\"></script>\n");
 
    // See if the requested map exists.
    char filename[2048];

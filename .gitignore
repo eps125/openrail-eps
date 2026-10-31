@@ -12,6 +12,7 @@
 /jiankong
 /service-report
 /*.cgi
+/asset_version.h
 
 # Local container config (never commit real credentials)
 docker/.env
